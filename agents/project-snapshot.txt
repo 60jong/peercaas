@@ -1,0 +1,1758 @@
+===== ./cmd/test/test.go =====
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings" // 문자열 처리를 위해 추가
+
+	"github.com/docker/docker/api/types/container" // [수정] 컨테이너 옵션 패키지
+	"github.com/docker/docker/api/types/image"     // [수정] 이미지 옵션 패키지
+	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
+	"github.com/streadway/amqp"
+)
+
+// RMQ로부터 받을 메시지 구조체
+type ContainerRequest struct {
+	Repository string   `json:"repository"`
+	Image      string   `json:"image"`
+	Tag        string   `json:"tag"`
+	Ports      []string `json:"ports"`
+	Envs       []string `json:"envs"`
+}
+
+func main() {
+	// ... 기존 main 함수 로직 동일 ...
+	// (RabbitMQ 연결 부분은 그대로 두셔도 됩니다)
+
+	// 테스트용으로 바로 호출해보고 싶다면 아래 주석을 풀고 테스트하세요
+	// cli, _ := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	// req := ContainerRequest{Image: "mysql", Tag: "8", Ports: []string{"3306:3306"}, Envs: []string{"MYSQL_ROOT_PASSWORD=1234"}}
+	// createAndRunContainer(cli, req)
+
+	// 원래 main 로직 유지
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 주의: DinD 환경에서 실행 시 localhost는 DinD 컨테이너 자체를 의미합니다.
+	// 호스트의 RabbitMQ에 붙으려면 외부 IP(58.143...)를 사용해야 할 수 있습니다.
+	conn, err := amqp.Dial("amqp://root:991911@localhost:5672/")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ch.Close()
+
+	msgs, err := ch.Consume("worker_tasks", "", true, false, false, false, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("🚀 Worker Agent 시작: 메시지 대기 중...")
+
+	for d := range msgs {
+		var req ContainerRequest
+		if err := json.Unmarshal(d.Body, &req); err != nil {
+			log.Printf("❌ 메시지 파싱 에러: %v", err)
+			continue
+		}
+
+		fmt.Printf("📦 컨테이너 생성 요청 수신: %s:%s\n", req.Image, req.Tag)
+		err := createAndRunContainer(cli, req)
+		if err != nil {
+			log.Printf("❌ 컨테이너 실행 실패: %v", err)
+		}
+	}
+}
+
+func createAndRunContainer(cli *client.Client, req ContainerRequest) error {
+	ctx := context.Background()
+	fullImageName := fmt.Sprintf("%s:%s", req.Image, req.Tag)
+
+	// [수정 1] types.ImagePullOptions -> image.PullOptions
+	reader, err := cli.ImagePull(ctx, fullImageName, image.PullOptions{})
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	// io.Copy(os.Stdout, reader) // 로그가 너무 길면 주석 처리
+
+	// 포트 설정
+	portBindings := nat.PortMap{}
+	exposedPorts := nat.PortSet{}
+
+	for _, portStr := range req.Ports {
+		hostPort, containerPort := splitPort(portStr)
+		if hostPort == "" || containerPort == "" {
+			continue
+		}
+		cPort := nat.Port(containerPort + "/tcp")
+
+		portBindings[cPort] = []nat.PortBinding{{HostPort: hostPort}}
+		exposedPorts[cPort] = struct{}{}
+	}
+
+	// 컨테이너 설정
+	config := &container.Config{
+		Image:        fullImageName,
+		Env:          req.Envs,
+		ExposedPorts: exposedPorts,
+	}
+
+	hostConfig := &container.HostConfig{
+		PortBindings: portBindings,
+	}
+
+	resp, err := cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")
+	if err != nil {
+		return err
+	}
+
+	// [수정 2] types.ContainerStartOptions -> container.StartOptions
+	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return err
+	}
+
+	fmt.Printf("✅ 컨테이너 실행 완료! ID: %s\n", resp.ID)
+	return nil
+}
+
+// [보완] Sscanf는 포맷이 조금만 달라도 실패하므로 strings.Split이 더 안전합니다.
+func splitPort(portStr string) (string, string) {
+	parts := strings.Split(portStr, ":")
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
+}
+===== ./cmd/worker/test.go =====
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"log"
+	"net"
+
+	"github.com/60jong/peercaas/agents/internal/config"
+	"github.com/go-redis/redis/v8"
+	"github.com/pion/webrtc/v3"
+)
+
+func OnNewDataChannel(dc *webrtc.DataChannel) {
+	log.Println("New DataChannel opened.")
+
+	dc.OnOpen(func() {
+		if dc.Label() == "INIT" {
+			log.Println("INIT Data channel opened.")
+			dc.Close()
+			return
+		}
+
+		dcSocket, err := dc.Detach()
+		if err != nil {
+			return
+		}
+		defer dcSocket.Close()
+
+		// 2. MySQL 실제 연결 (이 시점에 연결해야 Handshake를 받을 수 있음)
+		mysqlConn, err := net.Dial("tcp", "127.0.0.1:3306")
+		if err != nil {
+			log.Printf("[%s] MySQL 연결 실패: %v", dc.Label(), err)
+			return
+		}
+		defer mysqlConn.Close()
+
+		log.Printf("[%s] MySQL 연결 성공! 데이터 중계 시작", dc.Label())
+
+		// 3. 양방향 복사
+		go io.Copy(dcSocket, mysqlConn) // MySQL -> Client (Handshake 포함)
+		io.Copy(mysqlConn, dcSocket)    // Client -> MySQL
+
+		log.Printf("[%s] 세션 종료", dc.Label())
+	})
+
+}
+
+func main() {
+	// WebRTC 설정
+	config := config.GetConfig()
+	api := config.GetAPI()
+
+	peerConnection, err := api.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
+
+	// DataChannel Handler
+	peerConnection.OnDataChannel(OnNewDataChannel)
+
+	// Redis 설정
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     "43.200.25.147:6379",
+		Password: "tredis",
+		DB:       0,
+	})
+
+	offerResult, err := redisClient.BLPop(redisClient.Context(), 0, config.OFFER_KEY).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	var offer webrtc.SessionDescription
+	json.Unmarshal([]byte(offerResult[1]), &offer)
+
+	err = peerConnection.SetRemoteDescription(offer)
+	if err != nil {
+		panic(err)
+	}
+
+	answer, err := peerConnection.CreateAnswer(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// ICE 후보 로깅
+	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		log.Printf("New ICECandidate: %s\n", c.ToJSON())
+	})
+
+	err = peerConnection.SetLocalDescription(answer)
+	if err != nil {
+		panic(err)
+	}
+
+	<-webrtc.GatheringCompletePromise(peerConnection)
+	answer = *peerConnection.LocalDescription()
+
+	answerData, err := json.Marshal(answer)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = redisClient.RPush(redisClient.Context(), config.ANSWER_KEY, answerData).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	select {}
+}
+===== ./cmd/worker/main.go =====
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"agents/internal/app/worker"
+	"agents/internal/config"
+	"agents/internal/infra/mq/rabbitmq"
+
+	"github.com/docker/docker/client"
+)
+
+func main() {
+	// 1. Worker Agent 설정 로드
+	cfg := config.Load("worker")
+
+	if cfg.Worker.WorkerID == "" {
+		log.Fatal("CRITICAL ERROR: WORKER_ID environment variable is missing!")
+	}
+
+	queueName := cfg.Worker.WorkerID
+	log.Printf("=== Starting Worker Agent ===")
+	log.Printf("ID: %s", cfg.Worker.WorkerID)
+	log.Printf("Target Queue: %s", queueName)
+
+	// 2. RabbitMQ 연결
+	broker := rabbitmq.New(cfg.RabbitMQ.GetURL())
+	if err := broker.Connect(); err != nil {
+		log.Fatal(err)
+	}
+	defer broker.Close()
+
+	// 3. Docker 클라이언트 생성
+	dockerCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Fatalf("Failed to create Docker client: %v", err)
+	}
+	defer dockerCli.Close()
+
+	log.Printf("Starting Worker Agent: %s", cfg.Server.Name)
+	agent := worker.NewAgent(broker)
+
+	// 4. Publisher 생성
+	publisher := &worker.BrokerResultPublisher{
+		Broker:    broker,
+		QueueName: cfg.Worker.ResultQueue,
+	}
+
+	// 5. ContainerStore 생성
+	store := worker.NewContainerStore()
+
+	// 6. 핸들러 등록
+	agent.Register("CREATE_CONTAINER", &worker.CreateContainerHandler{
+		DockerCli: dockerCli,
+		Publisher: publisher,
+		WorkerId:  cfg.Worker.WorkerID,
+		Store:     store,
+	})
+	agent.Register("DELETE_CONTAINER", &worker.DeleteContainerHandler{
+		DockerCli: dockerCli,
+		Store:     store,
+	})
+	agent.Register("CONNECT_WEBRTC", &worker.ConnectWebRTCHandler{
+		Store:    store,
+		Broker:   broker,
+		WorkerID: cfg.Worker.WorkerID,
+	})
+
+	// 5. 실행 (Graceful Shutdown 준비)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	log.Println("=== PeerCaaS Worker Agent ===")
+
+	if err := agent.Run(ctx, queueName); err != nil {
+		log.Printf("Worker terminated with error: %v", err)
+	}
+}
+===== ./cmd/client/test.go =====
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"time"
+
+	"github.com/60jong/peercaas/agents/internal/config"
+	"github.com/go-redis/redis/v8"
+	"github.com/pion/webrtc/v3"
+)
+
+func main() {
+	// WebRTC 설정
+	config := config.GetConfig()
+	api := config.GetAPI()
+
+	peerConnection, err := api.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
+
+	// DataChannel 생성
+	_, err = peerConnection.CreateDataChannel("INIT", nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// Offer 생성
+	offer, err := peerConnection.CreateOffer(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// ICE Candidate를 찾을 때마다 로깅
+	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+		log.Printf(">>> ICE candidate: %v\n", c.ToJSON())
+	})
+
+	err = peerConnection.SetLocalDescription(offer) // 이 메서드를 기점으로 ICE Candidates 탐색 시작
+	if err != nil {
+		panic(err)
+	}
+
+	<-webrtc.GatheringCompletePromise(peerConnection) // `<-` : go channel이 닫힐 때까지 Thread block
+	offer = *peerConnection.LocalDescription()
+
+	log.Printf("Answering offer: %s\n", offer)
+
+	// Redis 설정
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     "43.200.25.147:6379",
+		Password: "tredis",
+		DB:       0,
+	})
+
+	// Offer 정보 전송
+	ctx := context.Background()
+
+	offerData, err := json.Marshal(offer)
+	_, err = redisClient.RPush(ctx, config.OFFER_KEY, offerData).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	// Answer 정보 대기
+	answerResult, err := redisClient.BLPop(ctx, 0, config.ANSWER_KEY).Result()
+	if err != nil {
+		panic(err)
+	}
+
+	var answer webrtc.SessionDescription
+	err = json.Unmarshal([]byte(answerResult[1]), &answer)
+	if err != nil {
+		panic(err)
+	}
+
+	err = peerConnection.SetRemoteDescription(answer)
+	if err != nil {
+		panic(err)
+	}
+
+	// 연결 완료 대기
+	log.Println("PeerConnection 연결 대기 중...")
+	for peerConnection.ConnectionState() != webrtc.PeerConnectionStateConnected {
+		log.Println(peerConnection.ConnectionState())
+		time.Sleep(100 * time.Millisecond)
+	}
+	log.Println(">>> P2P 연결 성공! TCP 서버를 시작합니다.")
+
+	// TCP Server
+	tcpServer, err := net.Listen("tcp", ":8888")
+	if err != nil {
+		panic(err)
+	}
+
+	for {
+		conn, err := tcpServer.Accept()
+		log.Println("Accepting connection")
+		if err != nil {
+			panic(err)
+		}
+
+		dcLabel := fmt.Sprintf("relay-%d", time.Now().Unix())
+		start := time.Now().Unix()
+		dc, err := peerConnection.CreateDataChannel(dcLabel, nil)
+
+		dc.OnOpen(func() {
+			end := time.Now().Unix()
+
+			log.Printf("Create DC %d ms", end-start)
+			dcSocket, err := dc.Detach()
+			if err != nil {
+				panic(err)
+			}
+
+			go func() {
+				defer dcSocket.Close()
+				defer dc.Close()
+
+				io.Copy(conn, dcSocket)
+				log.Println("Client connection closed1")
+			}()
+
+			go func() {
+				defer dcSocket.Close()
+				defer dc.Close()
+
+				io.Copy(dcSocket, conn)
+				log.Println("Client connection closed2")
+			}()
+		})
+
+	}
+}
+===== ./cmd/client/main.go =====
+package main
+
+import (
+	"context"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"agents/internal/app/client"
+	"agents/internal/config"
+	"agents/internal/infra/mq/rabbitmq"
+)
+
+func main() {
+	// 1. 설정 로드
+	cfg := config.Load()
+
+	// 2. RabbitMQ 연결
+	broker := rabbitmq.New(cfg.AMQPURL)
+	if err := broker.Connect(); err != nil {
+		log.Fatalf("Failed to connect to Broker: %v", err)
+	}
+	defer broker.Close()
+
+	// 3. Client 초기화
+	agent := client.NewAgent(broker)
+
+	// 4. 실행 (Graceful Shutdown 준비)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	log.Println("=== PeerCaaS Client Agent ===")
+	// Java 서버가 데이터를 받는 큐 이름: "peercaas_server_queue"
+	agent.StartReporting(ctx, "peercaas_server_queue")
+}
+===== ./internal/infra/mq/rabbitmq/impl.go =====
+package rabbitmq
+
+import (
+	"context"
+	"time"
+
+	"agents/internal/core"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+// rmqEvent: core.Event 인터페이스 구현체
+type rmqEvent struct {
+	d amqp.Delivery
+}
+
+func (e *rmqEvent) Payload() []byte { return e.d.Body }
+func (e *rmqEvent) Ack() error      { return e.d.Ack(false) }
+func (e *rmqEvent) Nack() error     { return e.d.Nack(false, false) }
+
+// RabbitMQBroker: core.Broker 인터페이스 구현체
+type RabbitMQBroker struct {
+	url  string
+	conn *amqp.Connection
+	ch   *amqp.Channel
+}
+
+func New(url string) *RabbitMQBroker {
+	return &RabbitMQBroker{url: url}
+}
+
+func (r *RabbitMQBroker) Connect() error {
+	var err error
+	// 연결 재시도 로직은 생략하고 단순 연결
+	r.conn, err = amqp.Dial(r.url)
+	if err != nil {
+		return err
+	}
+	r.ch, err = r.conn.Channel()
+	return err
+}
+
+func (r *RabbitMQBroker) Close() error {
+	if r.ch != nil {
+		r.ch.Close()
+	}
+	if r.conn != nil {
+		return r.conn.Close()
+	}
+	return nil
+}
+
+// Publish: Client -> Java Server (Queue로 직접 발송 예시)
+func (r *RabbitMQBroker) Publish(ctx context.Context, topic string, msg []byte) error {
+	// 컨텍스트에 타임아웃이 없으면 안전을 위해 설정
+	_, ok := ctx.Deadline()
+	if !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
+
+	return r.ch.PublishWithContext(ctx,
+		"",    // exchange (default)
+		topic, // routing key (queue name)
+		false, // mandatory
+		false, // immediate
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        msg,
+		},
+	)
+}
+
+// Subscribe: Worker <- Java Server
+func (r *RabbitMQBroker) Subscribe(ctx context.Context, topic string) (<-chan core.Event, error) {
+	// 큐가 없으면 생성 (Durable=true)
+	_, err := r.ch.QueueDeclare(topic, true, false, false, false, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	msgs, err := r.ch.Consume(
+		topic,
+		"",    // consumer name
+		false, // auto-ack (수동 Ack 사용)
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan core.Event)
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case d, ok := <-msgs:
+				if !ok {
+					return
+				}
+				out <- &rmqEvent{d: d}
+			}
+		}
+	}()
+	return out, nil
+}
+===== ./internal/core/event.go =====
+package core
+
+import "encoding/json"
+
+// CommandMessage: Java 서버와 통신하는 표준 JSON 포맷
+type CommandMessage struct {
+	CmdType   string          `json:"cmdType"`   // 예: CREATE_CONTAINER
+	TraceID   string          `json:"traceId"`   // 추적용 ID
+	Payload   json.RawMessage `json:"payload"`   // 실제 데이터
+	Timestamp int64           `json:"timestamp"` // Unix Time
+}
+===== ./internal/core/ports.go =====
+package core
+
+import "context"
+
+// Event: MQ 수신 메시지 추상화
+type Event interface {
+	Payload() []byte
+	Ack() error
+	Nack() error
+}
+
+// Broker: MQ 인프라 추상화 (Worker는 Subscribe, Client는 Publish 사용)
+type Broker interface {
+	Connect() error
+	Close() error
+	Publish(ctx context.Context, topic string, msg []byte) error
+	Subscribe(ctx context.Context, topic string) (<-chan Event, error)
+}
+
+// CommandHandler: Worker가 처리할 비즈니스 로직 인터페이스
+type CommandHandler interface {
+	Handle(ctx context.Context, msg CommandMessage) error
+}
+===== ./internal/app/worker/create_container_handler.go =====
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"strings"
+	"time"
+
+	"agents/internal/core"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
+)
+
+// CreateContainerHandler CREATE_CONTAINER 명령 핸들러
+type CreateContainerHandler struct {
+	DockerCli   *client.Client
+	Publisher   ResultPublisher  // 결과 전송 인터페이스
+	WorkerId    string           // 이 워커의 ID
+	RequesterId string           // 요청자 ID (선택적, 메시지에서 가져올 수도 있음)
+	Store       *ContainerStore  // 컨테이너 정보 저장소
+}
+
+func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
+	traceId := msg.TraceID
+
+	log.Printf(">> Processing %s (TraceID: %s, Timestamp: %d)", msg.CmdType, traceId, msg.Timestamp)
+
+	var p ContainerPayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil {
+		return fmt.Errorf("invalid container payload: %w", err)
+	}
+
+	log.Printf(">> [DEPLOY START] TraceID: %s, Worker: %s, Image: %s:%s",
+		traceId, h.WorkerId, p.Image, p.Tag)
+
+	// 5. 입력 검증
+	if err := h.validatePayload(&p); err != nil {
+		h.sendFailure(traceId, "Invalid Request: "+err.Error())
+		return err
+	}
+
+	// Context 취소 체크
+	if err := ctx.Err(); err != nil {
+		h.sendFailure(traceId, "Context cancelled before start: "+err.Error())
+		return err
+	}
+
+	// 6. 이미지 풀링
+	fullImageName := h.buildFullImageName(p.Registry, p.Image, p.Tag)
+
+	if err := h.pullImage(ctx, fullImageName); err != nil {
+		h.sendFailure(traceId, "Image Pull Failed: "+err.Error())
+		return err
+	}
+
+	// Context 취소 체크
+	if err := ctx.Err(); err != nil {
+		h.sendFailure(traceId, "Context cancelled after image pull: "+err.Error())
+		return err
+	}
+
+	// 7. 포트 바인딩 설정
+	exposedPorts, dockerPortBindings, err := h.configurePorts(p.Ports)
+	if err != nil {
+		h.sendFailure(traceId, "Port Config Failed: "+err.Error())
+		return err
+	}
+
+	// 8. 리소스 설정
+	hostConfig := &container.HostConfig{
+		PortBindings: dockerPortBindings,
+		Resources: container.Resources{
+			Memory:   p.Resources.MemoryMB * 1024 * 1024, // MB -> Bytes
+			NanoCPUs: int64(p.Resources.CPU * 1e9),       // Core -> NanoCPU
+		},
+		RestartPolicy: container.RestartPolicy{
+			Name: h.normalizeRestartPolicy(p.RestartPolicy),
+		},
+	}
+
+	// 볼륨 바인딩 추가 (있는 경우)
+	if len(p.Volumes) > 0 {
+		hostConfig.Binds = h.configureVolumes(p.Volumes)
+	}
+
+	// 9. 컨테이너 생성 (이름 충돌 회피 로직 포함)
+	containerID, actualName, err := h.createContainerWithRetry(ctx, p, fullImageName, exposedPorts, hostConfig)
+	if err != nil {
+		h.sendFailure(traceId, "Container Create Failed: "+err.Error())
+		return err
+	}
+
+	// Context 취소 체크
+	if err := ctx.Err(); err != nil {
+		h.sendFailure(traceId, "Context cancelled after container create: "+err.Error())
+		// 생성된 컨테이너 정리
+		_ = h.DockerCli.ContainerRemove(context.Background(), containerID, container.RemoveOptions{Force: true})
+		return err
+	}
+
+	// 10. 컨테이너 시작
+	if err := h.DockerCli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		h.sendFailure(traceId, "Container Start Failed: "+err.Error())
+		// 시작 실패 시 생성된 컨테이너 정리
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = h.DockerCli.ContainerRemove(cleanupCtx, containerID, container.RemoveOptions{Force: true})
+		return err
+	}
+
+	// 11. 컨테이너 시작 확인 (헬스체크)
+	if err := h.waitForContainerRunning(ctx, containerID); err != nil {
+		h.sendFailure(traceId, "Container Health Check Failed: "+err.Error())
+		// 헬스체크 실패 시 컨테이너 정리
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = h.DockerCli.ContainerRemove(cleanupCtx, containerID, container.RemoveOptions{Force: true})
+		return err
+	}
+
+	// 12. 성공 응답 전송
+	log.Printf(">> [DEPLOY SUCCESS] TraceID: %s, ContainerID: %s, Name: %s",
+		traceId, containerID, actualName)
+
+	portBindings := make(map[string]int, len(p.Ports))
+	for _, m := range p.Ports {
+		key := fmt.Sprintf("%d/%s", m.ContainerPort, m.Protocol)
+		portBindings[key] = m.HostPort
+	}
+
+	// Store에 컨테이너 정보 등록
+	if h.Store != nil {
+		h.Store.Put(&ContainerInfo{
+			ContainerID:  containerID,
+			Name:         actualName,
+			PortBindings: portBindings,
+			TraceID:      traceId,
+		})
+		log.Printf("   - Container registered in store: %s (%s)", containerID, actualName)
+	}
+
+	response := DeploymentResultPayload{
+		WorkerId:          h.WorkerId,
+		TraceId:           traceId,
+		RequesterId:       h.RequesterId,
+		ResultStatus:      "SUCCESS",
+		ContainerId:       containerID,
+		HostContainerName: actualName,
+		PortBindings:      portBindings,
+	}
+
+	return h.publishResult(traceId, "DEPLOYMENT_RESULT", response)
+}
+
+// --- Helper Functions for Create ---
+
+// normalizeRestartPolicy RestartPolicy 정규화 (대소문자 처리)
+func (h *CreateContainerHandler) normalizeRestartPolicy(policy string) container.RestartPolicyMode {
+	// RabbitMQ에서 "Always"로 올 수 있으므로 lowercase로 변환
+	normalized := strings.ToLower(policy)
+
+	switch normalized {
+	case "always":
+		return container.RestartPolicyAlways
+	case "on-failure":
+		return container.RestartPolicyOnFailure
+	case "unless-stopped":
+		return container.RestartPolicyUnlessStopped
+	default:
+		return container.RestartPolicyDisabled // "no" or empty
+	}
+}
+
+// configureVolumes 볼륨 바인딩 설정
+func (h *CreateContainerHandler) configureVolumes(volumes []VolumeMapping) []string {
+	binds := make([]string, 0, len(volumes))
+	for _, v := range volumes {
+		bind := fmt.Sprintf("%s:%s", v.HostPath, v.ContainerPath)
+		if v.ReadOnly {
+			bind += ":ro"
+		}
+		binds = append(binds, bind)
+	}
+	return binds
+}
+
+// validatePayload 페이로드 유효성 검증
+func (h *CreateContainerHandler) validatePayload(p *ContainerPayload) error {
+	if p.Image == "" {
+		return fmt.Errorf("image is required")
+	}
+	if p.Tag == "" {
+		return fmt.Errorf("tag is required")
+	}
+	if p.Name == "" {
+		return fmt.Errorf("container name is required")
+	}
+
+	// 리소스 검증
+	if p.Resources.MemoryMB <= 0 {
+		return fmt.Errorf("memory must be positive, got: %d", p.Resources.MemoryMB)
+	}
+	if p.Resources.CPU <= 0 {
+		return fmt.Errorf("cpu must be positive, got: %f", p.Resources.CPU)
+	}
+
+	// 최대값 체크 (필요시 조정)
+	const maxMemoryMB = 32 * 1024 // 32GB
+	const maxCPU = 16.0           // 16 cores
+	if p.Resources.MemoryMB > maxMemoryMB {
+		return fmt.Errorf("memory exceeds maximum allowed: %d > %d", p.Resources.MemoryMB, maxMemoryMB)
+	}
+	if p.Resources.CPU > maxCPU {
+		return fmt.Errorf("cpu exceeds maximum allowed: %f > %f", p.Resources.CPU, maxCPU)
+	}
+
+	// RestartPolicy 검증 (대소문자 무시)
+	if p.RestartPolicy != "" {
+		normalized := strings.ToLower(p.RestartPolicy)
+		validRestartPolicies := map[string]bool{
+			"no":             true,
+			"always":         true,
+			"on-failure":     true,
+			"unless-stopped": true,
+		}
+		if !validRestartPolicies[normalized] {
+			return fmt.Errorf("invalid restart policy: %s (allowed: no, always, on-failure, unless-stopped)", p.RestartPolicy)
+		}
+	}
+
+	// 포트 검증
+	for i, port := range p.Ports {
+		if port.ContainerPort <= 0 || port.ContainerPort > 65535 {
+			return fmt.Errorf("invalid container port at index %d: %d", i, port.ContainerPort)
+		}
+		if port.HostPort <= 0 || port.HostPort > 65535 {
+			return fmt.Errorf("invalid host port at index %d: %d", i, port.HostPort)
+		}
+		if port.Protocol != "" && port.Protocol != "tcp" && port.Protocol != "udp" {
+			return fmt.Errorf("invalid protocol at index %d: %s (allowed: tcp, udp)", i, port.Protocol)
+		}
+	}
+
+	return nil
+}
+
+// buildFullImageName 전체 이미지 이름 생성
+func (h *CreateContainerHandler) buildFullImageName(registry, image, tag string) string {
+	fullImageName := fmt.Sprintf("%s:%s", image, tag)
+	if registry != "" && registry != "docker.io" {
+		fullImageName = fmt.Sprintf("%s/%s:%s", registry, image, tag)
+	}
+	return fullImageName
+}
+
+// pullImage 이미지 Pull (에러 처리 개선)
+func (h *CreateContainerHandler) pullImage(ctx context.Context, imageName string) error {
+	log.Printf("   - Pulling image: %s", imageName)
+
+	reader, err := h.DockerCli.ImagePull(ctx, imageName, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("image pull request failed: %w", err)
+	}
+	defer reader.Close()
+
+	// Pull 진행 상황을 읽으면서 에러 체크
+	buf := make([]byte, 4096)
+	for {
+		// Context 취소 체크
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("image pull cancelled: %w", err)
+		}
+
+		n, err := reader.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to download image: %w", err)
+		}
+
+		// 진행 상황 로깅 (선택적)
+		// log.Printf("   - Downloaded %d bytes", n)
+		_ = n
+	}
+
+	log.Printf("   - Image pulled successfully: %s", imageName)
+	return nil
+}
+
+// configurePorts 포트 바인딩 설정
+func (h *CreateContainerHandler) configurePorts(mappings []PortMapping) (nat.PortSet, nat.PortMap, error) {
+	exposed := nat.PortSet{}
+	bindings := nat.PortMap{}
+
+	for _, m := range mappings {
+		protocol := m.Protocol
+		if protocol == "" {
+			protocol = "tcp"
+		}
+
+		// Docker Port Key: "80/tcp"
+		p, err := nat.NewPort(protocol, fmt.Sprintf("%d", m.ContainerPort))
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid port %d/%s: %w", m.ContainerPort, protocol, err)
+		}
+
+		exposed[p] = struct{}{}
+		bindings[p] = []nat.PortBinding{
+			{HostPort: fmt.Sprintf("%d", m.HostPort)},
+		}
+	}
+
+	return exposed, bindings, nil
+}
+
+// createContainerWithRetry 이름 충돌 시 재시도 로직 (개선)
+func (h *CreateContainerHandler) createContainerWithRetry(
+	ctx context.Context,
+	p ContainerPayload,
+	imageName string,
+	exposed nat.PortSet,
+	hostConfig *container.HostConfig,
+) (string, string, error) {
+
+	// 환경 변수 리스트 생성
+	envList := make([]string, 0, len(p.Env))
+	for k, v := range p.Env {
+		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	config := &container.Config{
+		Image:        imageName,
+		ExposedPorts: exposed,
+		Env:          envList,
+		Cmd:          p.Command,
+	}
+
+	// 동시성 문제 해결을 위해 랜덤 suffix 추가
+	rand.Seed(time.Now().UnixNano())
+
+	targetName := p.Name
+	maxRetries := 10
+
+	for i := 0; i < maxRetries; i++ {
+		// Context 취소 체크
+		if err := ctx.Err(); err != nil {
+			return "", "", fmt.Errorf("container create cancelled: %w", err)
+		}
+
+		log.Printf("   - Attempting to create container with name: %s (attempt %d/%d)", targetName, i+1, maxRetries)
+
+		resp, err := h.DockerCli.ContainerCreate(ctx, config, hostConfig, &network.NetworkingConfig{}, nil, targetName)
+		if err == nil {
+			log.Printf("   - Container created successfully: %s (ID: %s)", targetName, resp.ID)
+			return resp.ID, targetName, nil
+		}
+
+		// 이름 충돌 에러가 아니면 즉시 리턴
+		if !strings.Contains(err.Error(), "Conflict") && !strings.Contains(err.Error(), "is already in use") {
+			return "", "", fmt.Errorf("container create failed: %w", err)
+		}
+
+		// 충돌 시 이름 변경 후 재시도
+		if i < 5 {
+			targetName = fmt.Sprintf("%s-%d", p.Name, i+1)
+		} else {
+			// 5번 이상 실패 시 랜덤 suffix 추가
+			randomSuffix := rand.Intn(10000)
+			targetName = fmt.Sprintf("%s-%d-%d", p.Name, i+1, randomSuffix)
+		}
+
+		log.Printf("   - Name conflict detected, retrying with new name: %s", targetName)
+	}
+
+	return "", "", fmt.Errorf("failed to generate unique container name after %d retries", maxRetries)
+}
+
+// waitForContainerRunning 컨테이너가 실제로 running 상태가 될 때까지 대기
+func (h *CreateContainerHandler) waitForContainerRunning(ctx context.Context, containerID string) error {
+	timeout := 30 * time.Second
+	checkInterval := 500 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timeout waiting for container to start: %w", ctx.Err())
+		case <-ticker.C:
+			inspect, err := h.DockerCli.ContainerInspect(ctx, containerID)
+			if err != nil {
+				return fmt.Errorf("failed to inspect container: %w", err)
+			}
+
+			if inspect.State.Running {
+				log.Printf("   - Container is running: %s", containerID)
+				return nil
+			}
+
+			// 컨테이너가 에러 상태로 종료된 경우
+			if inspect.State.Dead || inspect.State.OOMKilled {
+				return fmt.Errorf("container died: Dead=%v, OOMKilled=%v, ExitCode=%d, Error=%s",
+					inspect.State.Dead, inspect.State.OOMKilled, inspect.State.ExitCode, inspect.State.Error)
+			}
+
+			// 아직 시작 중이면 계속 대기
+			log.Printf("   - Waiting for container to start... (Status: %s)", inspect.State.Status)
+		}
+	}
+}
+
+// sendFailure 실패 응답 전송
+func (h *CreateContainerHandler) sendFailure(traceId string, reason string) {
+	log.Printf(">> [DEPLOY FAILED] TraceID: %s, Worker: %s, Reason: %s",
+		traceId, h.WorkerId, reason)
+
+	response := DeploymentResultPayload{
+		WorkerId:      h.WorkerId,
+		TraceId:       traceId,
+		RequesterId:   h.RequesterId,
+		ResultStatus:  "FAILED",
+		FailureReason: reason,
+	}
+
+	if err := h.publishResult(traceId, "DEPLOYMENT_RESULT", response); err != nil {
+		log.Printf("   - Failed to publish failure result: %v", err)
+	}
+}
+
+// publishResult payload를 CommandMessage로 감싸서 발행
+func (h *CreateContainerHandler) publishResult(traceId string, cmdType string, payload any) error {
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	msg := core.CommandMessage{
+		CmdType:   cmdType,
+		TraceID:   traceId,
+		Payload:   payloadBytes,
+		Timestamp: time.Now().Unix(),
+	}
+
+	return h.Publisher.PublishResult(msg)
+}
+===== ./internal/app/worker/handler.go =====
+package worker
+
+import "agents/internal/core"
+
+// === [요청] 메인 페이로드 (Hub -> Worker) ===
+// RabbitMQ payload 구조에 맞춤
+type ContainerPayload struct {
+	Registry      string            `json:"registry"`
+	Image         string            `json:"image"`
+	Tag           string            `json:"tag"`
+	Name          string            `json:"name"` // 요청된 이름
+	Command       []string          `json:"command,omitempty"`
+	Ports         []PortMapping     `json:"ports"`
+	Env           map[string]string `json:"env"`
+	Volumes       []VolumeMapping   `json:"volumes"` // null 처리
+	Resources     ResourceLimit     `json:"resources"`
+	RestartPolicy string            `json:"restartPolicy"`
+}
+
+type PortMapping struct {
+	ContainerPort int    `json:"containerPort"`
+	HostPort      int    `json:"hostPort"`
+	Protocol      string `json:"protocol"`
+}
+
+type VolumeMapping struct {
+	HostPath      string `json:"hostPath"`
+	ContainerPath string `json:"containerPath"`
+	ReadOnly      bool   `json:"readOnly"`
+}
+
+type ResourceLimit struct {
+	MemoryMB int64   `json:"memoryMb"`
+	CPU      float64 `json:"cpu"`
+}
+
+// === 보상 트랜잭션 페이로드 ===
+type DeleteContainerPayload struct {
+	ContainerId string `json:"containerId"`
+	Force       bool   `json:"force"`
+}
+
+// === 결과 페이로드 (Worker -> Hub) ===
+type DeploymentResultPayload struct {
+	WorkerId          string         `json:"workerId"`
+	TraceId           string         `json:"traceId"`
+	RequesterId       string         `json:"requesterId"`
+	ResultStatus      string         `json:"resultStatus"`      // "SUCCESS" or "FAILED"
+	ContainerId       string         `json:"containerId"`       // Docker Container ID
+	HostContainerName string         `json:"hostContainerName"` // 실제 생성된 이름
+	FailureReason     string         `json:"failureReason"`     // 실패 시 에러 메시지
+	PortBindings      map[string]int `json:"portBindings"`      // ContainerPort -> HostPort
+}
+
+// ResultPublisher RabbitMQ Publisher Interface
+type ResultPublisher interface {
+	PublishResult(msg core.CommandMessage) error
+}
+===== ./internal/app/worker/store.go =====
+package worker
+
+import "sync"
+
+type ContainerInfo struct {
+	ContainerID  string
+	Name         string
+	PortBindings map[string]int // "3306/tcp" -> 33060
+	TraceID      string
+}
+
+type ContainerStore struct {
+	mu         sync.RWMutex
+	containers map[string]*ContainerInfo // key: containerId
+}
+
+func NewContainerStore() *ContainerStore {
+	return &ContainerStore{
+		containers: make(map[string]*ContainerInfo),
+	}
+}
+
+func (s *ContainerStore) Put(info *ContainerInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.containers[info.ContainerID] = info
+}
+
+func (s *ContainerStore) Get(containerID string) (*ContainerInfo, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	info, ok := s.containers[containerID]
+	return info, ok
+}
+
+func (s *ContainerStore) Delete(containerID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.containers, containerID)
+}
+===== ./internal/app/worker/delete_container_handler.go =====
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"agents/internal/core"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
+)
+
+// DeleteContainerHandler DELETE_CONTAINER 명령 핸들러 (보상 트랜잭션)
+type DeleteContainerHandler struct {
+	DockerCli *client.Client
+	Store     *ContainerStore
+}
+
+func (h *DeleteContainerHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
+	var p DeleteContainerPayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil {
+		return fmt.Errorf("invalid delete payload: %w", err)
+	}
+
+	log.Printf(">> [COMPENSATION] Deleting Container: %s (Force: %v)", p.ContainerId, p.Force)
+
+	// 입력 검증
+	if p.ContainerId == "" {
+		return fmt.Errorf("containerId is required")
+	}
+
+	// Timeout 설정
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// 1. 컨테이너 상태 확인 (존재 여부)
+	_, err := h.DockerCli.ContainerInspect(ctx, p.ContainerId)
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			log.Printf("   - Container already removed or not found: %s", p.ContainerId)
+			return nil // 멱등성 보장
+		}
+		log.Printf("   - Failed to inspect container: %v", err)
+		// Inspect 실패는 무시하고 삭제 시도
+	}
+
+	// 2. 컨테이너 중지 시도 (Force가 false인 경우 먼저 중지)
+	if !p.Force {
+		stopTimeout := 10 // 10초 대기
+		if err := h.DockerCli.ContainerStop(ctx, p.ContainerId, container.StopOptions{
+			Timeout: &stopTimeout,
+		}); err != nil {
+			// 이미 중지된 경우 무시
+			if !strings.Contains(err.Error(), "is not running") {
+				log.Printf("   - Failed to stop container (will try force remove): %v", err)
+			}
+		} else {
+			log.Printf("   - Container stopped gracefully")
+		}
+	}
+
+	// 3. 컨테이너 삭제
+	options := container.RemoveOptions{
+		Force:         p.Force,
+		RemoveVolumes: true,
+		RemoveLinks:   false,
+	}
+
+	err = h.DockerCli.ContainerRemove(ctx, p.ContainerId, options)
+	if err != nil {
+		// 이미 없는 컨테이너면 성공으로 간주 (멱등성)
+		if client.IsErrNotFound(err) || strings.Contains(err.Error(), "No such container") {
+			log.Printf("   - Container already removed or not found.")
+			return nil
+		}
+
+		log.Printf("   - Failed to remove container: %v", err)
+		return fmt.Errorf("failed to remove container %s: %w", p.ContainerId, err)
+	}
+
+	log.Printf("   - Container removed successfully: %s", p.ContainerId)
+
+	// Store에서 컨테이너 정보 제거
+	if h.Store != nil {
+		h.Store.Delete(p.ContainerId)
+		log.Printf("   - Container removed from store: %s", p.ContainerId)
+	}
+
+	return nil
+}
+===== ./internal/app/worker/webrtc_handler.go =====
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"time"
+
+	"agents/internal/core"
+
+	"github.com/pion/webrtc/v3"
+)
+
+// ConnectWebRTCPayload: Client-agent → Worker (요청)
+type ConnectWebRTCPayload struct {
+	ContainerID string                    `json:"containerId"`
+	Offer       webrtc.SessionDescription `json:"offer"`
+	ReplyQueue  string                    `json:"replyQueue"`
+}
+
+// ConnectWebRTCAnswerPayload: Worker → Client-agent (응답)
+type ConnectWebRTCAnswerPayload struct {
+	ContainerID  string                    `json:"containerId"`
+	Answer       webrtc.SessionDescription `json:"answer"`
+	PortBindings map[string]int            `json:"portBindings"`
+}
+
+type ConnectWebRTCHandler struct {
+	Store    *ContainerStore
+	Broker   core.Broker
+	WorkerID string
+}
+
+func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
+	traceId := msg.TraceID
+
+	var p ConnectWebRTCPayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil {
+		return fmt.Errorf("invalid CONNECT_WEBRTC payload: %w", err)
+	}
+
+	log.Printf(">> [WEBRTC] TraceID: %s, ContainerID: %s", traceId, p.ContainerID)
+
+	// 1. Store에서 컨테이너 정보 조회
+	info, ok := h.Store.Get(p.ContainerID)
+	if !ok {
+		return fmt.Errorf("container not found in store: %s", p.ContainerID)
+	}
+
+	// 2. PeerConnection 생성
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{URLs: []string{"stun:stun.l.google.com:19302"}},
+		},
+	}
+
+	pc, err := webrtc.NewPeerConnection(config)
+	if err != nil {
+		return fmt.Errorf("failed to create PeerConnection: %w", err)
+	}
+
+	// 3. DataChannel 핸들러 등록 (TCP 릴레이)
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		label := dc.Label()
+		log.Printf(">> [WEBRTC] DataChannel opened: %s (ContainerID: %s)", label, p.ContainerID)
+
+		dc.OnOpen(func() {
+			hostPort, exists := info.PortBindings[label]
+			if !exists {
+				log.Printf(">> [WEBRTC] Unknown port label: %s", label)
+				dc.Close()
+				return
+			}
+
+			dcSocket, err := dc.Detach()
+			if err != nil {
+				log.Printf(">> [WEBRTC] Detach failed: %v", err)
+				return
+			}
+
+			// 컨테이너의 호스트 포트로 TCP 연결
+			addr := fmt.Sprintf("127.0.0.1:%d", hostPort)
+			tcpConn, err := net.Dial("tcp", addr)
+			if err != nil {
+				log.Printf(">> [WEBRTC] TCP connect failed (%s): %v", addr, err)
+				dcSocket.Close()
+				return
+			}
+
+			log.Printf(">> [WEBRTC] TCP relay started: %s <-> %s", label, addr)
+
+			// 양방향 릴레이
+			go func() {
+				io.Copy(dcSocket, tcpConn) // Container → Client
+				dcSocket.Close()
+				tcpConn.Close()
+			}()
+			go func() {
+				io.Copy(tcpConn, dcSocket) // Client → Container
+				tcpConn.Close()
+				dcSocket.Close()
+			}()
+		})
+	})
+
+	// 4. 연결 상태 모니터링
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		log.Printf(">> [WEBRTC] Connection state: %s (ContainerID: %s)", state.String(), p.ContainerID)
+		if state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed {
+			pc.Close()
+		}
+	})
+
+	// 5. SDP 교환
+	if err := pc.SetRemoteDescription(p.Offer); err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to set remote description: %w", err)
+	}
+
+	answer, err := pc.CreateAnswer(nil)
+	if err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to create answer: %w", err)
+	}
+
+	if err := pc.SetLocalDescription(answer); err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to set local description: %w", err)
+	}
+
+	// 6. ICE gathering 완료 대기 (30초 타임아웃)
+	gatherComplete := webrtc.GatheringCompletePromise(pc)
+	select {
+	case <-gatherComplete:
+		// ICE gathering 완료
+	case <-time.After(30 * time.Second):
+		pc.Close()
+		return fmt.Errorf("ICE gathering timeout")
+	case <-ctx.Done():
+		pc.Close()
+		return fmt.Errorf("context cancelled during ICE gathering: %w", ctx.Err())
+	}
+
+	// 7. Answer를 replyQueue에 발행
+	answerPayload := ConnectWebRTCAnswerPayload{
+		ContainerID:  p.ContainerID,
+		Answer:       *pc.LocalDescription(),
+		PortBindings: info.PortBindings,
+	}
+
+	payloadBytes, err := json.Marshal(answerPayload)
+	if err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to marshal answer payload: %w", err)
+	}
+
+	replyMsg := core.CommandMessage{
+		CmdType:   "CONNECT_WEBRTC_ANSWER",
+		TraceID:   traceId,
+		Payload:   payloadBytes,
+		Timestamp: time.Now().Unix(),
+	}
+
+	replyBytes, err := json.Marshal(replyMsg)
+	if err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to marshal reply message: %w", err)
+	}
+
+	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := h.Broker.Publish(publishCtx, p.ReplyQueue, replyBytes); err != nil {
+		pc.Close()
+		return fmt.Errorf("failed to publish answer to %s: %w", p.ReplyQueue, err)
+	}
+
+	log.Printf(">> [WEBRTC] Answer published to %s (ContainerID: %s)", p.ReplyQueue, p.ContainerID)
+
+	return nil
+}
+===== ./internal/app/worker/agent.go =====
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"sync"
+
+	"agents/internal/core"
+)
+
+type WorkerAgent struct {
+	mq       core.Broker
+	handlers map[string]core.CommandHandler
+	wg       sync.WaitGroup
+}
+
+func NewAgent(mq core.Broker) *WorkerAgent {
+	return &WorkerAgent{
+		mq:       mq,
+		handlers: make(map[string]core.CommandHandler),
+	}
+}
+
+func (w *WorkerAgent) Register(cmdType string, handler core.CommandHandler) {
+	w.handlers[cmdType] = handler
+}
+
+func (w *WorkerAgent) Run(ctx context.Context, queueName string) error {
+	events, err := w.mq.Subscribe(ctx, queueName)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("[Worker] Listening on queue: %s", queueName)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[Worker] Shutting down...")
+			w.wg.Wait()
+			return nil
+
+		case evt, ok := <-events:
+			if !ok {
+				return nil
+			}
+			w.wg.Add(1)
+			go func(e core.Event) {
+				defer w.wg.Done()
+				w.processEvent(ctx, e)
+			}(evt)
+		}
+	}
+}
+
+func (w *WorkerAgent) processEvent(ctx context.Context, e core.Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Worker] Panic: %v", r)
+			e.Nack() // 재시도 정책에 따라 Nack 또는 Ack 처리
+		}
+	}()
+
+	var msg core.CommandMessage
+	if err := json.Unmarshal(e.Payload(), &msg); err != nil {
+		log.Printf("[Worker] JSON Error: %v", err)
+		e.Ack() // 형식이 잘못된 메시지는 버림
+		return
+	}
+
+	handler, exists := w.handlers[msg.CmdType]
+	if !exists {
+		log.Printf("[Worker] Unknown command: %s", msg.CmdType)
+		e.Ack()
+		return
+	}
+
+	log.Printf("[Worker] Processing %s (Trace: %s)", msg.CmdType, msg.TraceID)
+	if err := handler.Handle(ctx, msg); err != nil {
+		log.Printf("[Worker] Handler Error: %v", err)
+		e.Nack() // 실패 시 재시도
+	} else {
+		e.Ack() // 성공
+	}
+}
+===== ./internal/app/worker/publisher.go =====
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"agents/internal/core"
+)
+
+// BrokerResultPublisher: core.Broker를 이용한 ResultPublisher 구현체
+type BrokerResultPublisher struct {
+	Broker    core.Broker
+	QueueName string
+}
+
+func (p *BrokerResultPublisher) PublishResult(msg core.CommandMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command message: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return p.Broker.Publish(ctx, p.QueueName, data)
+}
+===== ./internal/app/client/agent.go =====
+package client
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"time"
+
+	"agents/internal/core"
+)
+
+type ClientAgent struct {
+	mq core.Broker
+}
+
+func NewAgent(mq core.Broker) *ClientAgent {
+	return &ClientAgent{mq: mq}
+}
+
+// StartReporting: 주기적으로 Java 서버로 데이터를 쏨
+func (c *ClientAgent) StartReporting(ctx context.Context, targetQueue string) {
+	log.Printf("[Client] Starting status report to: %s", targetQueue)
+
+	ticker := time.NewTicker(3 * time.Second) // 3초마다 보고
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[Client] Stopping reporter...")
+			return
+		case t := <-ticker.C:
+			// 1. 보낼 데이터 생성
+			payloadData := map[string]interface{}{
+				"cpu_usage": 45.2,
+				"mem_usage": 60.1,
+				"host_id":   "host-001",
+			}
+			payloadBytes, _ := json.Marshal(payloadData)
+
+			msg := core.CommandMessage{
+				CmdType:   "REPORT_HOST_STATUS",
+				TraceID:   "gen-id-12345", // 실제로는 UUID 생성
+				Timestamp: t.Unix(),
+				Payload:   payloadBytes,
+			}
+
+			// 2. 직렬화
+			body, err := json.Marshal(msg)
+			if err != nil {
+				log.Printf("[Client] Marshal error: %v", err)
+				continue
+			}
+
+			// 3. 전송 (Publish)
+			if err := c.mq.Publish(ctx, targetQueue, body); err != nil {
+				log.Printf("[Client] Send failed: %v", err)
+			} else {
+				log.Printf("[Client] Sent status update at %v", t.Format(time.TimeOnly))
+			}
+		}
+	}
+}
+===== ./internal/config/config.go =====
+package config
+
+import (
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/spf13/viper"
+)
+
+type Config struct {
+	Server   ServerConfig   `mapstructure:"server"`
+	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
+	Worker   WorkerConfig   `mapstructure:"worker"` // Worker 설정
+	Client   ClientConfig   `mapstructure:"client"`
+}
+
+type ServerConfig struct {
+	Name string `mapstructure:"name"`
+}
+
+type RabbitMQConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	VHost    string `mapstructure:"vhost"`
+}
+
+type WorkerConfig struct {
+	// yaml의 worker_id 필드 혹은 환경변수 WORKER_ID와 매핑
+	WorkerID    string `mapstructure:"worker_id"`
+	ResultQueue string `mapstructure:"result_queue"`
+	Concurrency int    `mapstructure:"concurrency"`
+}
+
+type ClientConfig struct {
+	PublishQueue   string        `mapstructure:"publish_queue"`
+	ReportInterval time.Duration `mapstructure:"report_interval"`
+}
+
+func (r *RabbitMQConfig) GetURL() string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%d%s",
+		r.Username, r.Password, r.Host, r.Port, r.VHost,
+	)
+}
+
+func Load(configName string) *Config {
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("./configs")
+	viper.SetConfigName(configName)
+	viper.SetConfigType("yaml")
+
+	// 1. 기본 환경변수 패턴 (예: AGENT_RABBITMQ_HOST)
+	viper.SetEnvPrefix("AGENT")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// 2. [핵심] Docker 환경변수 WORKER_ID를 Config.Worker.WorkerID에 강제 바인딩
+	// 이제 컨테이너 실행 시 -e WORKER_ID=worker-01 을 주면 여기에 들어갑니다.
+	_ = viper.BindEnv("worker.worker_id", "WORKER_ID")
+
+	if err := viper.ReadInConfig(); err != nil {
+		log.Printf("Warning: Config file '%s' not found. Relying on Env vars.", configName)
+	}
+
+	var cfg Config
+	if err := viper.Unmarshal(&cfg); err != nil {
+		log.Fatalf("Config unmarshal failed: %v", err)
+	}
+
+	return &cfg
+}

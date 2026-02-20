@@ -1,0 +1,15 @@
+server:
+  name: worker-node-01
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  username: root
+  password: 991911
+
+# Worker 전용 설정
+worker:
+  worker_id: test-worker
+  subscribe_queue: test-worker
+  result_queue: peercaas.worker.events
+  concurrency: 5

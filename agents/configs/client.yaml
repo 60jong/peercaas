@@ -1,0 +1,13 @@
+server:
+  name: "client-host-A"
+
+rabbitmq:
+  host: "localhost"
+  port: 5672
+  username: "guest"
+  password: "guest"
+
+# Client 전용 설정
+client:
+  publish_queue: "peercaas_server_queue"
+  report_interval: "5s"

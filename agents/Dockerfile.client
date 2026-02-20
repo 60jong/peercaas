@@ -1,0 +1,22 @@
+# 1. Build Stage
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# 클라이언트 빌드
+RUN go build -o client-agent ./cmd/client/main.go
+
+# 2. Runtime Stage
+FROM alpine:latest
+
+WORKDIR /root/
+
+COPY --from=builder /app/client-agent .
+RUN chmod +x ./client-agent
+
+CMD ["./client-agent"]

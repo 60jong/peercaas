@@ -1,0 +1,28 @@
+# 1. Build Stage
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+
+# 캐싱을 위해 go.mod/sum 먼저 복사
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 전체 소스 복사 (cmd, internal 포함)
+COPY . .
+
+# 워커 빌드
+RUN go build -o worker-agent ./cmd/worker/main.go
+
+# 2. Runtime Stage
+FROM alpine:latest
+
+WORKDIR /root/
+
+# 빌드된 바이너리만 가져옴
+COPY --from=builder /app/worker-agent .
+
+# 실행 권한 부여 (혹시 모르니)
+RUN chmod +x ./worker-agent
+
+# 실행
+CMD ["./worker-agent"]
