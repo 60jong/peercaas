@@ -1,28 +1,79 @@
-# 1. Build Stage
+# ─── Build Stage ──────────────────────────────────────────────────────────────
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-# 캐싱을 위해 go.mod/sum 먼저 복사
 COPY go.mod go.sum ./
 RUN go mod download
 
-# 전체 소스 복사 (cmd, internal 포함)
 COPY . .
 
-# 워커 빌드
-RUN go build -o worker-agent ./cmd/worker/main.go
+# CGO 비활성화: 정적 바이너리로 빌드 (glibc 의존성 제거)
+RUN CGO_ENABLED=0 GOOS=linux go build -o worker-agent ./cmd/worker/main.go
 
-# 2. Runtime Stage
-FROM alpine:latest
+# ─── Runtime Stage ────────────────────────────────────────────────────────────
+# docker:dind: dockerd + docker CLI가 포함된 공식 DinD 이미지
+#
+# [sysbox 사용 전제]
+#   docker run --runtime=sysbox-runc ... 으로 실행
+#   sysbox가 Linux 커널 네임스페이스(user, mount, pid 등)를 제공하므로
+#   --privileged 없이 내부에서 dockerd 실행 가능 (rootless DinD)
+FROM docker:27-dind
 
-WORKDIR /root/
+WORKDIR /app
 
-# 빌드된 바이너리만 가져옴
+# Worker Agent 바이너리 복사
 COPY --from=builder /app/worker-agent .
 
-# 실행 권한 부여 (혹시 모르니)
-RUN chmod +x ./worker-agent
+# 설정 파일 복사 (WORKER_ID 등 환경변수로 오버라이드 가능)
+COPY configs/ ./configs/
 
-# 실행
-CMD ["./worker-agent"]
+# ─── Entrypoint Script ────────────────────────────────────────────────────────
+# 1. 내부 dockerd 시작 (sysbox가 격리 제공, 호스트 Docker와 완전히 독립)
+# 2. dockerd 준비 완료 대기
+# 3. worker-agent 실행 (exec로 PID 1 교체 → 시그널 전달 정상화)
+RUN cat <<'EOF' > /entrypoint.sh
+#!/bin/sh
+set -e
+
+echo "[entrypoint] Starting inner Docker daemon (sysbox DinD)..."
+
+# dockerd 시작
+#   --storage-driver=overlay2 : sysbox 제공 커널 네임스페이스에서 overlay2 사용 가능
+#   기본 소켓: /var/run/docker.sock
+dockerd \
+    --storage-driver=overlay2 \
+    > /var/log/dockerd.log 2>&1 &
+
+DOCKERD_PID=$!
+
+# dockerd 준비 대기 (최대 30초)
+WAIT=0
+until docker info > /dev/null 2>&1; do
+    if ! kill -0 "$DOCKERD_PID" 2>/dev/null; then
+        echo ""
+        echo "[entrypoint] dockerd exited unexpectedly. Logs:"
+        cat /var/log/dockerd.log
+        exit 1
+    fi
+    if [ "$WAIT" -ge 60 ]; then
+        echo ""
+        echo "[entrypoint] Timed out waiting for dockerd"
+        exit 1
+    fi
+    printf "."
+    sleep 0.5
+    WAIT=$((WAIT + 1))
+done
+
+echo ""
+echo "[entrypoint] Docker daemon ready (inner DinD)"
+docker version --format "  Client: {{.Client.Version}} / Server: {{.Server.Version}}"
+
+# worker-agent 실행 (exec: 이 프로세스가 PID 1이 됨 → SIGTERM 정상 수신)
+exec /app/worker-agent
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
