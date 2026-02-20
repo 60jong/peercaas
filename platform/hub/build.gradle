@@ -1,0 +1,60 @@
+plugins {
+    id 'org.springframework.boot' // 버전 없이 선언 (Root 설정 상속)
+
+    id "org.asciidoctor.jvm.convert" version "3.3.2" // Asciidoctor 플러그인: .adoc 파일을 HTML로 변환
+}
+
+configurations {
+    asciidoctorExt
+}
+
+ext {
+    snippetsDir = file('build/generated-snippets')
+}
+
+dependencies {
+    implementation project(':common')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'com.h2database:h2'
+    implementation 'org.mariadb.jdbc:mariadb-java-client:3.3.3'
+
+    implementation 'at.favre.lib:bcrypt:0.10.2'
+
+    // [JWT] 토큰 생성 및 파싱
+    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.restdocs:spring-restdocs-mockmvc'
+    asciidoctorExt 'org.springframework.restdocs:spring-restdocs-asciidoctor'
+
+}
+
+test {
+    outputs.dir snippetsDir // 테스트가 끝난 후 스니펫을 해당 경로로 출력
+    useJUnitPlatform()
+}
+
+// [New] Asciidoctor 문서 생성 설정
+asciidoctor {
+    inputs.dir snippetsDir // 테스트에서 생성된 스니펫을 입력으로 사용
+    configurations 'asciidoctorExt' // 확장 설정 적용
+    dependsOn test // 문서 생성 전에 반드시 테스트가 먼저 실행되어야 함
+
+    baseDirFollowsSourceFile()
+}
+
+bootJar {
+    dependsOn asciidoctor // Jar 만들기 전에 문서 생성이 먼저 되어야 함
+    from ("${asciidoctor.outputDir}") {
+        into 'static/docs'
+    }
+}

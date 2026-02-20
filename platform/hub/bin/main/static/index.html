@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PeerCaaS Deployment Tester</title>
+    <style>
+        /* 다크 모드 스타일링 */
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            margin: 0;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; color: #569cd6; }
+
+        /* 입력 폼 */
+        .input-group { margin-bottom: 15px; background: #252526; padding: 15px; border-radius: 5px; }
+        label { display: block; margin-bottom: 8px; color: #9cdcfe; font-weight: bold; }
+        input[type="text"] {
+            width: 100%; padding: 10px; background: #3c3c3c;
+            border: 1px solid #555; color: white; box-sizing: border-box; font-family: inherit;
+        }
+
+        /* 버튼 */
+        button {
+            width: 100%; padding: 12px; background: #0e639c; color: white;
+            border: none; cursor: pointer; font-size: 16px; font-weight: bold; border-radius: 5px;
+            transition: background 0.2s;
+        }
+        button:hover { background: #1177bb; }
+        button:disabled { background: #444; cursor: not-allowed; opacity: 0.7; }
+
+        /* 로그 콘솔 창 */
+        #console-window {
+            background: #000; padding: 15px; border: 1px solid #333;
+            height: 500px; overflow-y: scroll; margin-top: 20px;
+            white-space: pre-wrap; font-size: 14px; border-radius: 5px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        /* 로그 텍스트 색상 */
+        .log-line { margin-bottom: 4px; border-bottom: 1px solid #111; padding-bottom: 2px; }
+        .log-time { color: #888; margin-right: 10px; font-size: 0.85em; }
+        .log-info { color: #d4d4d4; }
+        .log-success { color: #4caf50; font-weight: bold; }
+        .log-warn { color: #ce9178; }
+        .log-error { color: #f44336; font-weight: bold; }
+        .log-highlight { color: #4fc1ff; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>🚀 PeerCaaS Deployment Console</h2>
+
+    <div class="input-group">
+        <label>🔐 Master Token (Bearer 제외)</label>
+        <input type="text" id="token" placeholder="JWT 토큰을 입력하세요...">
+    </div>
+
+    <button id="deployBtn" onclick="startDeployment()">배포 시작 & 실시간 로그 구독</button>
+
+    <div id="console-window">
+        <div class="log-line"><span class="log-time">System</span>준비 완료. 토큰을 입력하고 버튼을 누르세요.</div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // ⚙️ 설정 (Backend URL)
+    // ==========================================
+    const API_BASE_URL = "http://localhost:8080/api/v1";
+
+    // SSE 객체를 전역 변수로 관리 (재연결 제어용)
+    let eventSource = null;
+
+    // ==========================================
+    // 📜 로그 출력 유틸리티
+    // ==========================================
+    function log(message, type = 'info') {
+        const consoleDiv = document.getElementById('console-window');
+        const time = new Date().toLocaleTimeString();
+
+        const line = document.createElement('div');
+        line.className = `log-line log-${type}`;
+        line.innerHTML = `<span class="log-time">[${time}]</span>${message}`;
+
+        consoleDiv.appendChild(line);
+        consoleDiv.scrollTop = consoleDiv.scrollHeight; // 자동 스크롤
+    }
+
+    // ==========================================
+    // 🚀 1. 배포 요청 (POST)
+    // ==========================================
+    async function startDeployment() {
+        const token = document.getElementById('token').value.trim();
+        const btn = document.getElementById('deployBtn');
+
+        if (!token) {
+            alert("토큰을 입력해주세요!");
+            return;
+        }
+
+        // UI 초기화
+        btn.disabled = true;
+        btn.innerText = "⏳ 배포 요청 중...";
+        if(eventSource) {
+            eventSource.close(); // 이전 연결 끊기
+            log("🔄 이전 SSE 연결을 종료했습니다.", "warn");
+        }
+
+        // 랜덤 이름 생성 (충돌 방지 테스트용)
+        const randomName = "nginx-test-" + Math.floor(Math.random() * 10000);
+
+        const payload = {
+            name: randomName,
+            image: "nginx:alpine",
+            registry: "docker.io",
+            ports: [{ containerPort: 80, hostPort: 8888, protocol: "tcp" }], // 0 = 랜덤포트
+            env: { "APP_ENV": "dev-test" },
+            resources: { "memoryMb": 128, "cpu": 0.2 },
+            restartPolicy: "Always"
+        };
+
+        log(`📤 [POST] 배포 요청을 전송합니다... (Name: ${randomName})`, "highlight");
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/deployment`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+
+            const result = await response.json();
+
+            // 응답 구조: { message: "...", data: { traceId: "...", ... } }
+            const traceId = result.data.traceId;
+            const status = result.data.status;
+
+            log(`✅ [ACK] 요청 접수 완료!`, "success");
+            log(`   - TraceID: ${traceId}`, "highlight");
+            log(`   - Status: ${status}`, "warn");
+
+            // 2단계: SSE 구독 시작
+            connectSSE(traceId);
+
+        } catch (e) {
+            log(`❌ 요청 실패: ${e.message}`, "error");
+            btn.disabled = false;
+            btn.innerText = "배포 시작 & 실시간 로그 구독";
+        }
+    }
+
+    // ==========================================
+    // 📡 2. SSE 구독 (GET /subscribe/{traceId})
+    // ==========================================
+    function connectSSE(traceId) {
+        // [중요] 요청하신 URL 패턴: /api/v1/notification/subscribe/{traceId}
+        // 만약 백엔드가 'notifications'(복수형)라면 아래 주소를 수정하세요.
+        const sseUrl = `${API_BASE_URL}/notification/subscribe/${traceId}`;
+
+        log(`📡 [SSE] 실시간 로그 구독 시작: ${sseUrl}`, "info");
+
+        eventSource = new EventSource(sseUrl);
+
+        // 1) 연결 성공
+        eventSource.onopen = () => {
+            log("🔗 [SSE] 서버와 연결되었습니다. 워커 응답 대기 중...", "success");
+        };
+
+        // 2) 일반 메시지 수신
+        eventSource.onmessage = (event) => {
+            log(`📩 [Msg] ${event.data}`, "info");
+        };
+
+        // 3) 배포 상태 이벤트 수신 (deployment-status)
+        eventSource.addEventListener('deployment-status', (event) => {
+            try {
+                console.log(event);
+                const data = JSON.parse(event.data);
+                // data 예시: { traceId: "...", status: "SUCCESS", ... }
+
+                if (data.status === 'SUCCESS' || data.status === 'RUNNING') {
+                    log(`🎉 [COMPLETE] 배포 성공!`, "success");
+                    log(`   - Container: ${data.hostContainerName || 'N/A'}`, "info");
+                    log(`   - IP:Port: ${data.publicIp}:${data.mappedPort}`, "highlight");
+
+                    resetButton();
+                } else if (data.status === 'FAILED') {
+                    log(`🔥 [FAILED] 배포 실패: ${data.failReason || '알 수 없는 오류'}`, "error");
+                    resetButton();
+                } else {
+                    log(`🔄 [UPDATE] 상태 변경: ${data.status}`, "warn");
+                }
+            } catch (e) {
+                log(`⚠️ 데이터 파싱 에러: ${event.data}`, "error");
+            }
+        });
+
+        // 4) 에러 처리
+        eventSource.onerror = (err) => {
+            // EventSource는 연결이 끊기면 브라우저가 자동으로 재연결을 시도합니다.
+            // 따라서 여기서 close()를 호출하면 재연결을 막게 됩니다.
+            // log("⚠️ [SSE] 연결 불안정 (재연결 시도 중...)", "warn");
+        };
+    }
+
+    function resetButton() {
+        const btn = document.getElementById('deployBtn');
+        btn.disabled = false;
+        btn.innerText = "배포 시작 & 실시간 로그 구독";
+    }
+</script>
+</body>
+</html>

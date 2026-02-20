@@ -1,0 +1,9 @@
+plugins {
+    id 'org.springframework.boot' // 버전 없이 선언 (Root 설정 상속)
+}
+
+dependencies {
+    implementation project(':common')
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}

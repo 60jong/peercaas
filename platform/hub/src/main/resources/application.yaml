@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: peercaas-hub
+
+  cache:
+    type: simple
+
+  datasource:
+    driver-class-name: org.mariadb.jdbc.Driver
+    url: jdbc:mariadb://localhost:3306/peercaas?serverTimezone=Asia/Seoul
+    username: root
+    password: 991911
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        show_sql: true
+        format_sql: true
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: root
+    password: 991911
+
+jwt:
+  secret: "peercaas-backend-secret-key-for-jwt-signing-must-be-long-enough-bytes"
+  remaining-due: 86400000           # 1일
+  access-expiration: 3600000        # 1시간
+  refresh-expiration: 1209600000    # 14일 (2주)
+
+peercaas:
+  worker:
+    queue: peercaas.worker.events
+  engine:
+    url: http://localhost:8090

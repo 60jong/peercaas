@@ -1,0 +1,5 @@
+rootProject.name = 'peercaas-platform'
+
+include 'common'
+include 'hub'
+include 'engine'
