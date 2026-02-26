@@ -13,3 +13,4 @@ worker:
   subscribe_queue: test-worker
   result_queue: peercaas.worker.events
   concurrency: 5
+  hub_url: http://localhost:8080

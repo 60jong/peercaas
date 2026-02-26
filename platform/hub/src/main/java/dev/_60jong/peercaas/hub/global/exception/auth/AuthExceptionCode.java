@@ -12,7 +12,8 @@ public enum AuthExceptionCode implements ExceptionCode {
     EXPIRED_REFRESH_TOKEN(BAD_REQUEST, "AUTH_003", "만료된 refresh token입니다."),
     ILLEGAL_ARGUMENT(BAD_REQUEST, "AUTH_004", "잘못된 파라미터입니다."),
     INVALID_TOKEN(BAD_REQUEST, "AUTH_005", "유효하지 않은 토큰입니다."),
-    TOKEN_REQUIRED(UNAUTHORIZED, "AUTH_006", "인증이 필요합니다.");
+    TOKEN_REQUIRED(UNAUTHORIZED, "AUTH_006", "인증이 필요합니다."),
+    INVALID_MEMBER_INFO(BAD_REQUEST, "AUTH_007", "잘못된 회원 정보입니다.");
 
     private HttpStatus status;
     private String code;

@@ -33,6 +33,7 @@ type WorkerConfig struct {
 	WorkerID    string `mapstructure:"worker_id"`
 	ResultQueue string `mapstructure:"result_queue"`
 	Concurrency int    `mapstructure:"concurrency"`
+	HubURL      string `mapstructure:"hub_url"`
 }
 
 type ClientConfig struct {
