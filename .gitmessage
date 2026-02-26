@@ -1,0 +1,29 @@
+# <type>(<scope>): <subject>
+# 예: feat(hub): implement resource-aware worker scheduling
+# ------------------
+# [Type]
+#   feat     : 새로운 기능 추가
+#   fix      : 버그 수정
+#   ui       : UI 스타일 및 디자인 변경
+#   chore    : 빌드 업무, 패키지 매니저, 기타 설정 변경 (코드 변경 없음)
+#   refactor : 코드 리팩토링
+#   docs     : 문서 수정
+#   test     : 테스트 코드 추가/수정
+#   perf     : 성능 개선
+#
+# [Scope]
+#   hub      : Central Control Plane (Java)
+#   worker   : Worker Agent (Go)
+#   client   : Client Agent (Go)
+#   engine   : Relay/Signaling Server
+#   common   : Shared libraries/DTOs
+#   infra    : Docker, RMQ, DB settings
+# ------------------
+
+# Body: 상세 내용 (무엇을, 왜, 어떻게 변경했는지)
+# - 
+# - 
+
+# Footer: 연관 이슈 또는 Breaking Changes
+# - Issue: #
+# - BREAKING CHANGE: (없으면 삭제)

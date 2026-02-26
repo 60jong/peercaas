@@ -37,3 +37,13 @@ peercaas:
     queue: peercaas.worker.events
   engine:
     url: http://localhost:8090
+  scoring:
+    weights:
+      latency: 0.25
+      resource: 0.20
+      load: 0.25
+      reliability: 0.15
+      proximity: 0.15
+    disabled: []
+  geoip:
+    database-path: classpath:GeoLite2-City.mmdb
