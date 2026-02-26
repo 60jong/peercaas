@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"time"
 
 	"agents/internal/core"
+	"agents/internal/metrics"
 
 	"github.com/docker/docker/client"
 )
@@ -29,6 +29,7 @@ type RelaySessionEntry struct {
 type RelayConnectHandler struct {
 	Store     *ContainerStore
 	DockerCli *client.Client
+	Traffic   *metrics.TrafficStore
 }
 
 func (h *RelayConnectHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
@@ -53,6 +54,7 @@ func (h *RelayConnectHandler) Handle(ctx context.Context, msg core.CommandMessag
 	}
 
 	// 각 세션마다 고루틴으로 relay 연결 수립
+	stats := h.Traffic.GetOrCreate(p.ContainerID, "relay")
 	for _, sess := range p.Sessions {
 		hostPort, exists := info.PortBindings[sess.PortKey]
 		if !exists {
@@ -62,7 +64,7 @@ func (h *RelayConnectHandler) Handle(ctx context.Context, msg core.CommandMessag
 
 		go func(s RelaySessionEntry, hp int) {
 			// ctx 대신 Background 사용 — Worker가 재시작해도 relay 연결은 유지
-			if err := runRelayBridge(context.Background(), p.RelayHost, p.RelayPort, s.Token, hp); err != nil {
+			if err := runRelayBridge(p.RelayHost, p.RelayPort, s.Token, hp, stats); err != nil {
 				log.Printf(">> [RELAY] Session %s ended: %v", s.Token, err)
 			}
 		}(sess, hostPort)
@@ -72,17 +74,17 @@ func (h *RelayConnectHandler) Handle(ctx context.Context, msg core.CommandMessag
 }
 
 // runRelayBridge: Engine relay 서버에 연결 → 컨테이너 포트와 브릿지
-func runRelayBridge(ctx context.Context, relayHost string, relayPort int, token string, containerPort int) error {
+func runRelayBridge(relayHost string, relayPort int, token string, containerPort int, stats *metrics.ContainerTraffic) error {
 	relayAddr := fmt.Sprintf("%s:%d", relayHost, relayPort)
 
 	relayConn, err := net.DialTimeout("tcp", relayAddr, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to relay %s: %w", relayAddr, err)
 	}
-	defer relayConn.Close()
 
 	// 핸드셰이크: 세션 토큰 전송
 	if _, err := fmt.Fprintf(relayConn, "%s\n", token); err != nil {
+		relayConn.Close()
 		return fmt.Errorf("failed to send handshake: %w", err)
 	}
 
@@ -90,29 +92,16 @@ func runRelayBridge(ctx context.Context, relayHost string, relayPort int, token 
 	containerAddr := fmt.Sprintf("127.0.0.1:%d", containerPort)
 	containerConn, err := net.DialTimeout("tcp", containerAddr, 5*time.Second)
 	if err != nil {
+		relayConn.Close()
 		return fmt.Errorf("failed to connect to container %s: %w", containerAddr, err)
 	}
-	defer containerConn.Close()
 
 	log.Printf(">> [RELAY] Bridge active: token=%s ↔ container:%d", token, containerPort)
+	stats.IncrConn()
 
-	// 양방향 브릿지
-	done := make(chan struct{}, 2)
-	go func() {
-		io.Copy(containerConn, relayConn)
-		done <- struct{}{}
-	}()
-	go func() {
-		io.Copy(relayConn, containerConn)
-		done <- struct{}{}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-done:
-		return nil
-	}
+	// 양방향 브릿지 (relayConn=remote/client측, containerConn=local/컨테이너측)
+	metrics.BridgeWithTraffic(relayConn, containerConn, stats)
+	return nil
 }
 
 func (h *RelayConnectHandler) recoverFromDocker(ctx context.Context, containerID string) (*ContainerInfo, error) {

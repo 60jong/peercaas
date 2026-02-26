@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strconv"
 	"time"
 
 	"agents/internal/core"
+	"agents/internal/metrics"
 
 	"github.com/docker/docker/client"
 	"github.com/pion/webrtc/v3"
@@ -34,6 +34,7 @@ type ConnectWebRTCHandler struct {
 	Broker    core.Broker
 	WorkerID  string
 	DockerCli *client.Client
+	Traffic   *metrics.TrafficStore
 }
 
 func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
@@ -106,17 +107,10 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 
 			log.Printf(">> [WEBRTC] TCP relay started: %s <-> %s", label, addr)
 
-			// 양방향 릴레이
-			go func() {
-				io.Copy(dcSocket, tcpConn) // Container → Client
-				dcSocket.Close()
-				tcpConn.Close()
-			}()
-			go func() {
-				io.Copy(tcpConn, dcSocket) // Client → Container
-				tcpConn.Close()
-				dcSocket.Close()
-			}()
+			// 트래픽 집계 후 양방향 릴레이 (dcSocket=remote, tcpConn=local/container)
+			stats := h.Traffic.GetOrCreate(p.ContainerID, "webrtc")
+			stats.IncrConn()
+			go metrics.BridgeWithTraffic(dcSocket, tcpConn, stats)
 		})
 	})
 

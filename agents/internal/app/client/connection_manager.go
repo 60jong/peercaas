@@ -3,12 +3,13 @@ package client
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"agents/internal/metrics"
 
 	"github.com/pion/webrtc/v3"
 )
@@ -37,6 +38,7 @@ const (
 type ConnectionManager struct {
 	config    *Config
 	hubClient *HubClient
+	traffic   *metrics.TrafficStore
 
 	// 현재 활성 transport (atomic: 0=WebRTC, 1=Relay)
 	activeTransport atomic.Int32
@@ -49,10 +51,11 @@ type ConnectionManager struct {
 	portBindings map[string]int
 }
 
-func NewConnectionManager(cfg *Config, hub *HubClient) *ConnectionManager {
+func NewConnectionManager(cfg *Config, hub *HubClient, traffic *metrics.TrafficStore) *ConnectionManager {
 	return &ConnectionManager{
 		config:    cfg,
 		hubClient: hub,
+		traffic:   traffic,
 	}
 }
 
@@ -178,7 +181,9 @@ func (cm *ConnectionManager) handleWebRTC(ctx context.Context, tcpConn net.Conn,
 			return
 		}
 		log.Printf("[Manager] WebRTC relay: %s <-> DataChannel(%s)", tcpConn.RemoteAddr(), portKey)
-		bridge(rawDC, tcpConn)
+		stats := cm.traffic.GetOrCreate(cm.config.ContainerID, "webrtc")
+		stats.IncrConn()
+		go metrics.BridgeWithTraffic(rawDC, tcpConn, stats)
 	})
 }
 
@@ -210,7 +215,9 @@ func (cm *ConnectionManager) handleRelay(ctx context.Context, tcpConn net.Conn, 
 	}
 
 	log.Printf("[Manager] Relay bridge: %s ↔ relay(token=%s)", tcpConn.RemoteAddr(), relayInfo.Token)
-	bridge(relayConn, tcpConn)
+	stats := cm.traffic.GetOrCreate(cm.config.ContainerID, "relay")
+	stats.IncrConn()
+	metrics.BridgeWithTraffic(relayConn, tcpConn, stats)
 }
 
 // tryWebRTC: WebRTC PeerConnection 수립 시도
@@ -285,18 +292,3 @@ func (cm *ConnectionManager) setPeerConnection(pc *webrtc.PeerConnection) {
 	cm.pc = pc
 }
 
-// bridge: 두 io.ReadWriteCloser 간 양방향 복사
-func bridge(a, b io.ReadWriteCloser) {
-	done := make(chan struct{}, 2)
-	go func() {
-		io.Copy(a, b)
-		done <- struct{}{}
-	}()
-	go func() {
-		io.Copy(b, a)
-		done <- struct{}{}
-	}()
-	<-done
-	a.Close()
-	b.Close()
-}
