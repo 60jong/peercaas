@@ -11,6 +11,13 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
+// HubClientPort: Hub와 통신하는 인터페이스 (테스트에서 mock으로 교체 가능)
+type HubClientPort interface {
+	GetContainerInfo(ctx context.Context, containerID string) (*ContainerInfoResponse, error)
+	SignalConnect(ctx context.Context, containerID string, offer webrtc.SessionDescription) (*webrtc.SessionDescription, error)
+	RequestRelay(ctx context.Context, containerID string, portKey string) (*RelayResponse, error)
+}
+
 type HubClient struct {
 	BaseURL    string
 	HTTPClient *http.Client

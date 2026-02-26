@@ -36,9 +36,10 @@ const (
 
 // ConnectionManager: WebRTC/Relay 전환 + 백그라운드 WebRTC retry 전략
 type ConnectionManager struct {
-	config    *Config
-	hubClient *HubClient
-	traffic   *metrics.TrafficStore
+	config       *Config
+	hubClient    HubClientPort
+	webRTCConfig *webrtc.Configuration // nil이면 기본값(STUN) 사용
+	traffic      *metrics.TrafficStore
 
 	// 현재 활성 transport (atomic: 0=WebRTC, 1=Relay)
 	activeTransport atomic.Int32
@@ -51,7 +52,7 @@ type ConnectionManager struct {
 	portBindings map[string]int
 }
 
-func NewConnectionManager(cfg *Config, hub *HubClient, traffic *metrics.TrafficStore) *ConnectionManager {
+func NewConnectionManager(cfg *Config, hub HubClientPort, traffic *metrics.TrafficStore) *ConnectionManager {
 	return &ConnectionManager{
 		config:    cfg,
 		hubClient: hub,
@@ -223,7 +224,7 @@ func (cm *ConnectionManager) handleRelay(ctx context.Context, tcpConn net.Conn, 
 // tryWebRTC: WebRTC PeerConnection 수립 시도
 // 성공 시 PeerConnection 반환, 실패 시 에러
 func (cm *ConnectionManager) tryWebRTC(ctx context.Context) (*webrtc.PeerConnection, error) {
-	tunnel := &Tunnel{Config: cm.config, HubClient: cm.hubClient}
+	tunnel := &Tunnel{Config: cm.config, HubClient: cm.hubClient, WebRTCConfig: cm.webRTCConfig}
 	return tunnel.Connect(ctx)
 }
 
