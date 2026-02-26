@@ -1,15 +1,14 @@
-package dev._60jong.peercaas.hub.domain.auth.controller.api.request;
+package dev._60jong.peercaas.hub.domain.member.controller.api.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 @Getter
-@Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class NormalSigninRequest {
+public class MemberProfileResponse {
+    private Long id;
     private String email;
-    private String password;
+    private String nickname;
 }

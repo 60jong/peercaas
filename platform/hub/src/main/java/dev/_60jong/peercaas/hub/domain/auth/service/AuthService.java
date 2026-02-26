@@ -97,7 +97,7 @@ public class AuthService {
         );
 
         // 3. 토큰 발급 및 반환
-        return issueTokens(member.getId());
+        return issueTokens(member.getId(), member.getNickname());
     }
 
     /**
@@ -107,8 +107,8 @@ public class AuthService {
     public TokenResponse signin(NormalSigninRequest request) {
         validateBeforeSignin(request);
 
-        Long findMemberId = memberService.findByEmail(request.getEmail()).getId();
-        return issueTokens(findMemberId);
+        Member member = memberService.findByEmail(request.getEmail());
+        return issueTokens(member.getId(), member.getNickname());
     }
 
     /**
@@ -132,6 +132,8 @@ public class AuthService {
             throw new RuntimeException("토큰 정보가 일치하지 않습니다.");
         }
 
+        Member member = memberService.findById(memberId);
+
         // 3. Access Token 무조건 재발급
         String newAccessToken = jwtProvider.createAccessToken(memberId);
 
@@ -146,7 +148,7 @@ public class AuthService {
             cacheService.put(CACHE_NAME, String.valueOf(memberId), newRefreshToken);
         }
 
-        return new TokenResponse(newAccessToken, newRefreshToken);
+        return new TokenResponse(newAccessToken, newRefreshToken, member.getNickname());
     }
 
 
@@ -165,14 +167,14 @@ public class AuthService {
     // ============================================
     // ----- Helper Method -----
     // ============================================
-    private TokenResponse issueTokens(Long memberId) {
+    private TokenResponse issueTokens(Long memberId, String nickname) {
         String accessToken = jwtProvider.createAccessToken(memberId);
         String refreshToken = jwtProvider.createRefreshToken(memberId);
 
         // Refresh Token 저장
         cacheService.put(CACHE_NAME, String.valueOf(memberId), refreshToken);
 
-        return new TokenResponse(accessToken, refreshToken);
+        return new TokenResponse(accessToken, refreshToken, nickname);
     }
 
     private void validateBeforeSignup(NormalSignupRequest request) {
@@ -183,6 +185,9 @@ public class AuthService {
     }
 
     private void validateBeforeSignin(NormalSigninRequest request) {
+        if (request.getEmail() == null || request.getPassword() == null) {
+            throw new BaseException(INVALID_MEMBER_INFO, "이메일과 비밀번호를 모두 입력해주세요.");
+        }
         // 1. email 존재 확인 (NotNull, 존재하지 않을 경우 exception 발생됨)
         Member member = memberService.findByEmail(request.getEmail());
 
