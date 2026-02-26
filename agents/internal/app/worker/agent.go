@@ -7,18 +7,23 @@ import (
 	"sync"
 
 	"agents/internal/core"
+	"agents/internal/metrics"
 )
 
 type WorkerAgent struct {
-	mq       core.Broker
-	handlers map[string]core.CommandHandler
-	wg       sync.WaitGroup
+	workerID       string
+	heartbeatQueue string
+	mq             core.Broker
+	handlers       map[string]core.CommandHandler
+	wg             sync.WaitGroup
 }
 
-func NewAgent(mq core.Broker) *WorkerAgent {
+func NewAgent(mq core.Broker, workerID string, heartbeatQueue string) *WorkerAgent {
 	return &WorkerAgent{
-		mq:       mq,
-		handlers: make(map[string]core.CommandHandler),
+		workerID:       workerID,
+		heartbeatQueue: heartbeatQueue,
+		mq:             mq,
+		handlers:       make(map[string]core.CommandHandler),
 	}
 }
 
@@ -26,7 +31,10 @@ func (w *WorkerAgent) Register(cmdType string, handler core.CommandHandler) {
 	w.handlers[cmdType] = handler
 }
 
-func (w *WorkerAgent) Run(ctx context.Context, queueName string) error {
+func (w *WorkerAgent) Run(ctx context.Context, queueName string, traffic *metrics.TrafficStore) error {
+	// 하트비트 시작 (통합 메트릭 포함)
+	go StartHeartbeat(ctx, w.mq, w.workerID, w.heartbeatQueue, traffic)
+
 	events, err := w.mq.Subscribe(ctx, queueName)
 	if err != nil {
 		return err

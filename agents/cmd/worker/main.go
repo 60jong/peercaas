@@ -10,6 +10,7 @@ import (
 	"agents/internal/app/worker"
 	"agents/internal/config"
 	"agents/internal/infra/mq/rabbitmq"
+	"agents/internal/metrics"
 
 	"github.com/docker/docker/client"
 )
@@ -42,7 +43,7 @@ func main() {
 	defer dockerCli.Close()
 
 	log.Printf("Starting Worker Agent: %s", cfg.Server.Name)
-	agent := worker.NewAgent(broker)
+	agent := worker.NewAgent(broker, cfg.Worker.WorkerID, "peercaas.worker.heartbeat")
 
 	// 4. Publisher 생성
 	publisher := &worker.BrokerResultPublisher{
@@ -50,8 +51,9 @@ func main() {
 		QueueName: cfg.Worker.ResultQueue,
 	}
 
-	// 5. ContainerStore 생성
+	// 5. ContainerStore + TrafficStore 생성
 	store := worker.NewContainerStore()
+	traffic := metrics.NewTrafficStore()
 
 	// 6. 핸들러 등록
 	agent.Register("CREATE_CONTAINER", &worker.CreateContainerHandler{
@@ -69,19 +71,21 @@ func main() {
 		Broker:    broker,
 		WorkerID:  cfg.Worker.WorkerID,
 		DockerCli: dockerCli,
+		Traffic:   traffic,
 	})
 	agent.Register("RELAY_CONNECT", &worker.RelayConnectHandler{
 		Store:     store,
 		DockerCli: dockerCli,
+		Traffic:   traffic,
 	})
 
-	// 5. 실행 (Graceful Shutdown 준비)
+	// 7. 실행 (Graceful Shutdown 준비)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("=== PeerCaaS Worker Agent ===")
+	log.Printf("=== PeerCaaS Worker Agent === (Unified Metrics via RMQ)")
 
-	if err := agent.Run(ctx, queueName); err != nil {
+	if err := agent.Run(ctx, queueName, traffic); err != nil {
 		log.Printf("Worker terminated with error: %v", err)
 	}
 }

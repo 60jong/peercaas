@@ -43,6 +43,9 @@ public class Container extends BaseTimeEntity {
     @Column(columnDefinition = "json")
     private Map<String, Integer> portBindings;
 
+    private Long txBytes = 0L;
+    private Long rxBytes = 0L;
+
     @Builder
     public Container(Deployment deployment, String containerId, String containerName,
                      String workerId, Map<String, Integer> portBindings) {
@@ -52,5 +55,10 @@ public class Container extends BaseTimeEntity {
         this.workerId = workerId;
         this.portBindings = portBindings;
         this.status = ContainerStatus.RUNNING;
+    }
+
+    public void updateTraffic(Long txBytes, Long rxBytes) {
+        this.txBytes = txBytes;
+        this.rxBytes = rxBytes;
     }
 }

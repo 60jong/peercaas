@@ -20,6 +20,9 @@ public class RabbitMQConfig {
     @Value("${peercaas.worker.queue}")
     private String workerEventQueue;
 
+    @Value("${peercaas.worker.heartbeat-queue:peercaas.worker.heartbeat}")
+    private String heartbeatQueue;
+
     @Bean
     public MessageConverter jacksonMessageConverter() {
         return new Jackson2JsonMessageConverter();
@@ -61,5 +64,10 @@ public class RabbitMQConfig {
     @Bean
     public Queue workerEventQueue() {
         return new Queue(workerEventQueue, true);
+    }
+
+    @Bean
+    public Queue heartbeatQueue() {
+        return new Queue(heartbeatQueue, true);
     }
 }

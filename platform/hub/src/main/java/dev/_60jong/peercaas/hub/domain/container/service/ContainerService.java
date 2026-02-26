@@ -60,6 +60,12 @@ public class ContainerService {
         return ContainerInfoResponse.from(container);
     }
 
+    @Transactional
+    public void updateMetrics(String containerId, Long txBytes, Long rxBytes) {
+        containerRepository.findByContainerId(containerId)
+                .ifPresent(container -> container.updateTraffic(txBytes, rxBytes));
+    }
+
     public ConnectContainerResponse connect(String containerId, ConnectContainerRequest request) {
         Container container = containerRepository.findByContainerId(containerId)
                 .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "Container not found: " + containerId));
