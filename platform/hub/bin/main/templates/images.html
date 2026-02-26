@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Results | PeerCaaS</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .results-container { padding: 3rem 5%; max-width: 1000px; margin: 0 auto; }
+        .result-card { background: #white; border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; }
+        .result-card:hover { border-color: var(--primary-color); transform: scale(1.01); }
+        .image-name { font-weight: 700; font-size: 1.2rem; color: var(--text-main); }
+        .image-desc { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; }
+        .pulls { color: var(--text-muted); font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/" class="logo">PEERCAAS</a>
+        <div class="search-container">
+            <input type="text" class="search-input" th:value="${query}" id="image-search">
+        </div>
+        <div class="nav-links">
+            <a href="/signin" class="btn btn-outline" id="signin-nav">Sign In</a>
+            <div id="profile-section" class="profile-container hidden">
+                <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
+            </div>
+        </div>
+    </nav>
+
+    <div class="results-container">
+        <h2 th:text="'Results for "' + ${query} + '"'">Results for "nginx"</h2>
+        
+        <!-- Mock Data 1 -->
+        <div class="result-card" onclick="location.href='/deploy?image=nginx:latest'">
+            <div>
+                <div class="image-name">nginx</div>
+                <div class="image-desc">Official build of Nginx.</div>
+                <div class="pulls">1B+ Pulls • Official Image</div>
+            </div>
+            <button class="btn btn-primary">Deploy</button>
+        </div>
+
+        <!-- Mock Data 2 -->
+        <div class="result-card" onclick="location.href='/deploy?image=bitnami/nginx:latest'">
+            <div>
+                <div class="image-name">bitnami/nginx</div>
+                <div class="image-desc">Bitnami Docker Image for Nginx.</div>
+                <div class="pulls">100M+ Pulls</div>
+            </div>
+            <button class="btn btn-primary">Deploy</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('accessToken');
+            if (token) {
+                document.getElementById('signin-nav').classList.add('hidden');
+                document.getElementById('profile-section').classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

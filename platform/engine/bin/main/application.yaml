@@ -7,5 +7,5 @@ spring:
 
 relay:
   host: localhost
-  port: 7000
+  port: 6006
   session-ttl-seconds: 300
