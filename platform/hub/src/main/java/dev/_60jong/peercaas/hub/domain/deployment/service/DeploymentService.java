@@ -5,12 +5,14 @@ import dev._60jong.peercaas.hub.domain.container.service.ContainerService;
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.request.CreateDeploymentRequest;
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.CreateDeploymentResponse;
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.DeploymentInfoResponse;
+import dev._60jong.peercaas.hub.domain.agent.model.entity.WorkerAgent;
 import dev._60jong.peercaas.hub.domain.deployment.model.DeploymentStatus;
 import dev._60jong.peercaas.hub.domain.deployment.model.vo.DeploymentParam;
 import dev._60jong.peercaas.hub.domain.deployment.model.vo.CreateDeploymentRequestPayload;
 import dev._60jong.peercaas.hub.domain.deployment.model.entity.Deployment;
 import dev._60jong.peercaas.hub.domain.deployment.model.vo.DeploymentResultPayload;
 import dev._60jong.peercaas.hub.domain.deployment.repository.DeploymentRepository;
+import dev._60jong.peercaas.hub.domain.deployment.service.scheduler.WorkerScheduler;
 import dev._60jong.peercaas.hub.domain.member.model.entity.Member;
 import dev._60jong.peercaas.hub.domain.member.service.MemberService;
 import dev._60jong.peercaas.hub.global.exception.BaseException;
@@ -31,6 +33,7 @@ public class DeploymentService {
 
     private final MemberService memberService;
     private final ContainerService containerService;
+    private final WorkerScheduler workerScheduler;
 
     private final WorkerMessageSender workerMessageSender;
     private final DeploymentRepository deploymentRepository;
@@ -40,7 +43,12 @@ public class DeploymentService {
         String traceId = KeyGenerator.generate();
 
         // 1. 타겟 Worker Agent 고르기
-        String targetWorkerId = "test-worker";
+        WorkerAgent targetWorker = workerScheduler.selectBestWorker(
+                request.toEntityParam(traceId, null, null).getCpuLimit(),
+                request.toEntityParam(traceId, null, null).getMemoryMbLimit()
+        ).orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
+
+        String targetWorkerId = targetWorker.getWorkerId();
         log.info("[Deployment Start] TraceID: {}, Worker: {}", traceId, targetWorkerId);
 
         // 2. API DTO -> Entity 변환 및 저장 (상태: PENDING)
