@@ -15,8 +15,9 @@ import (
 )
 
 type Tunnel struct {
-	Config    *Config
-	HubClient *HubClient
+	Config       *Config
+	HubClient    HubClientPort
+	WebRTCConfig *webrtc.Configuration // nil이면 기본값(STUN) 사용
 }
 
 // Start: 단독 실행 (ConnectionManager 없이 WebRTC only 모드)
@@ -92,11 +93,15 @@ func (t *Tunnel) Connect(ctx context.Context) (*webrtc.PeerConnection, error) {
 	se.DetachDataChannels()
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
-	pc, err := api.NewPeerConnection(webrtc.Configuration{
+	iceConfig := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
-	})
+	}
+	if t.WebRTCConfig != nil {
+		iceConfig = *t.WebRTCConfig
+	}
+	pc, err := api.NewPeerConnection(iceConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PeerConnection: %w", err)
 	}

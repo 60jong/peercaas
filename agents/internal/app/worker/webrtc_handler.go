@@ -30,10 +30,11 @@ type ConnectWebRTCAnswerPayload struct {
 }
 
 type ConnectWebRTCHandler struct {
-	Store     *ContainerStore
-	Broker    core.Broker
-	WorkerID  string
-	DockerCli *client.Client
+	Store        *ContainerStore
+	Broker       core.Broker
+	WorkerID     string
+	DockerCli    *client.Client
+	WebRTCConfig *webrtc.Configuration // nil이면 기본값(STUN) 사용
 }
 
 func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
@@ -65,13 +66,16 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
 
-	config := webrtc.Configuration{
+	iceConfig := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
 	}
+	if h.WebRTCConfig != nil {
+		iceConfig = *h.WebRTCConfig
+	}
 
-	pc, err := api.NewPeerConnection(config)
+	pc, err := api.NewPeerConnection(iceConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create PeerConnection: %w", err)
 	}
