@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Account | PeerCaaS</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body class="auth-wrapper">
+
+    <div class="auth-card">
+        <a href="/" class="logo">PEERCAAS</a>
+        <h2>Create an account</h2>
+        <p class="subtitle">Join the decentralized cloud revolution.</p>
+
+        <form id="signup-form">
+            <div class="form-group">
+                <label for="nickname">Nickname</label>
+                <input type="text" id="nickname" name="nickname" placeholder="John Doe" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" placeholder="name@company.com" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="••••••••" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Create Account</button>
+        </form>
+
+        <div class="divider">Or register with</div>
+
+        <div class="social-buttons">
+            <a href="#" class="social-btn">
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="social-icon" alt="Google">
+                Google
+            </a>
+            <a href="#" class="social-btn">
+                <img src="https://www.svgrepo.com/show/475647/github-color.svg" class="social-icon" alt="GitHub">
+                GitHub
+            </a>
+        </div>
+
+        <div class="footer-link">
+            Already have an account? <a href="/signin">Sign in</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('signup-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const nickname = document.getElementById('nickname').value;
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/api/v1/auth/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ nickname, email, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.code === 200) {
+                    localStorage.setItem('accessToken', result.data.accessToken);
+                    localStorage.setItem('nickname', result.data.nickname);
+                    location.href = '/';
+                } else {
+                    alert(result.message || 'Signup failed');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('An error occurred during signup');
+            }
+        });
+    </script>
+</body>
+</html>

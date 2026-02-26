@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Image | PeerCaaS</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .deploy-container { padding: 4rem 5%; max-width: 800px; margin: 0 auto; }
+        .config-card { background: white; border: 1px solid var(--border-color); border-radius: 1rem; padding: 2rem; }
+        .config-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
+        .image-tag { background: #fee2e2; color: var(--primary-color); padding: 0.2rem 0.6rem; border-radius: 0.4rem; font-size: 0.8rem; font-weight: 700; }
+        .form-section { margin-bottom: 2rem; }
+        .form-section-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 1rem; display: block; }
+        .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+        .footer-btns { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 3rem; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/" class="logo">PEERCAAS</a>
+        <div class="nav-links"><a href="/signin" class="btn btn-outline" id="signin-nav">Sign In</a></div>
+    </nav>
+
+    <div class="deploy-container">
+        <div class="config-card">
+            <div class="config-header">
+                <img src="https://www.svgrepo.com/show/448221/docker.svg" style="width: 48px; height: 48px;">
+                <div>
+                    <h2 style="margin: 0;" th:text="${image}">nginx:latest</h2>
+                    <span class="image-tag">Latest</span>
+                </div>
+            </div>
+
+            <form id="deploy-form">
+                <div class="form-section">
+                    <label class="form-section-title">Container Name</label>
+                    <input type="text" class="search-input" style="border-radius: 0.5rem; background: #fff;" value="my-nginx-app">
+                </div>
+
+                <div class="form-section">
+                    <label class="form-section-title">Port Mapping</label>
+                    <div class="input-row">
+                        <div><label style="font-size: 0.8rem; color: var(--text-muted);">Host Port</label><input type="text" class="search-input" style="border-radius: 0.5rem; background: #fff;" value="8080"></div>
+                        <div><label style="font-size: 0.8rem; color: var(--text-muted);">Container Port</label><input type="text" class="search-input" style="border-radius: 0.5rem; background: #fff;" value="80"></div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <label class="form-section-title">Environment Variables</label>
+                    <div class="input-row">
+                        <input type="text" class="search-input" style="border-radius: 0.5rem; background: #fff;" placeholder="KEY">
+                        <input type="text" class="search-input" style="border-radius: 0.5rem; background: #fff;" placeholder="VALUE">
+                    </div>
+                </div>
+
+                <div class="footer-btns">
+                    <button type="button" class="btn btn-outline" onclick="history.back()">Back</button>
+                    <button type="button" class="btn btn-primary" onclick="alert('Deployment Request Sent!')">Run Container</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PeerCaaS — Worker Dashboard</title>
+  <style>
+    :root {
+        --primary-color: #b91c1c;
+        --primary-hover: #991b1b;
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --text-main: #1e293b;
+        --text-muted: #64748b;
+        --border-color: #e2e8f0;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-color);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 14px;
+      padding: 24px;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; color: var(--text-main); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-worker { background: #fee2e2; color: var(--primary-color); }
+    .badge-stale  { background: #fef3c7; color: #d97706; }
+    .agent-key { font-family: monospace; font-size: 12px; color: var(--text-muted); }
+    .updated { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+
+    /* ── Summary cards ── */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+    .card-value { font-size: 28px; font-weight: 800; }
+    .card-value.small { font-size: 16px; }
+    .tx { color: var(--primary-color); }
+    .rx { color: #2563eb; }
+
+    /* ── Status ── */
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot-online { background: #10b981; box-shadow: 0 0 4px #10b981; }
+    .dot-stale  { background: #f59e0b; }
+
+    /* ── CTA Section ── */
+    .cta-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 100px 20px;
+      background: white;
+      border: 1px dashed var(--border-color);
+      border-radius: 20px;
+      margin-top: 20px;
+    }
+    .cta-title { font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-bottom: 1rem; }
+    .cta-desc { font-size: 1rem; color: var(--text-muted); margin-bottom: 2rem; max-width: 500px; line-height: 1.6; }
+    .btn-primary { background-color: var(--primary-color); color: white; padding: 0.75rem 2rem; border-radius: 0.5rem; font-weight: 700; text-decoration: none; transition: 0.2s; }
+    .btn-primary:hover { background-color: var(--primary-hover); transform: scale(1.05); }
+
+    /* ── Waiting ── */
+    .waiting { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted); }
+    .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #main-content { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- Case 1: Not a Worker -->
+  <div th:if="${!isWorker}" class="cta-container">
+    <div class="cta-title">Become a PeerCaaS Worker</div>
+    <p class="cta-desc">
+      Contribute your idle computing resources to the network and earn rewards. 
+      Join thousands of others in building a decentralized cloud.
+    </p>
+    <a href="#" class="btn-primary" onclick="alert('Join logic to be implemented!')">Join as Worker</a>
+  </div>
+
+  <!-- Case 2: Registered Worker -->
+  <div th:if="${isWorker}">
+    <div class="header">
+      <span class="badge badge-worker">Worker Agent</span>
+      <span class="agent-key" th:text="${key}">key</span>
+      <span id="stale-badge" class="badge badge-stale" style="display:none">STALE</span>
+      <span class="updated" id="updated-time">Connecting…</span>
+    </div>
+
+    <div id="waiting-area">
+      <div class="waiting">
+        <div class="spinner"></div>
+        <div class="waiting-title" style="font-weight: 600;">Waiting for agent reporting…</div>
+        <div class="waiting-sub">Your worker will appear here once metrics start flowing.</div>
+      </div>
+    </div>
+
+    <div id="main-content">
+      <div class="cards">
+        <div class="card">
+          <div class="card-label">↑ Total Tx</div>
+          <div class="card-value tx" id="w-tx">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">↓ Total Rx</div>
+          <div class="card-value rx" id="s-rx">—</div> <!-- ID was s-rx in previous version, fixed below -->
+        </div>
+        <div class="card">
+          <div class="card-label">Status</div>
+          <div class="card-value" id="w-status" style="font-size: 22px;">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Active Containers</div>
+          <div class="card-value" id="w-containers">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Connections</div>
+          <div class="card-value" id="w-conns">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Last Heartbeat</div>
+          <div class="card-value small" id="w-reported">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script th:if="${isWorker}" th:inline="javascript">
+    const AGENT_KEY = [[${key}]];
+
+    function fmtBytes(n) {
+      n = Number(n) || 0;
+      if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
+      if (n >= 1048576)    return (n / 1048576).toFixed(2)    + ' MB';
+      if (n >= 1024)       return (n / 1024).toFixed(1)       + ' KB';
+      return n + ' B';
+    }
+
+    function render(snap) {
+      const mainContent = document.getElementById('main-content');
+      const waitingArea = document.getElementById('waiting-area');
+      if (mainContent) mainContent.style.display = '';
+      if (waitingArea) waitingArea.style.display = 'none';
+
+      const stale = snap.stale;
+      const staleBadge = document.getElementById('stale-badge');
+      if (staleBadge) staleBadge.style.display = stale ? '' : 'none';
+
+      const containers = snap.containers || [];
+      let totalTx = 0, totalRx = 0, totalConns = 0;
+      containers.forEach(c => {
+        totalTx += c.txBytes || 0;
+        totalRx += c.rxBytes || 0;
+        totalConns += c.connCount || 0;
+      });
+
+      const txEl = document.getElementById('w-tx');
+      const rxEl = document.getElementById('w-rx') || document.getElementById('s-rx');
+      if (txEl) txEl.textContent = fmtBytes(totalTx);
+      if (rxEl) rxEl.textContent = fmtBytes(totalRx);
+      
+      const contEl = document.getElementById('w-containers');
+      const connEl = document.getElementById('w-conns');
+      const repEl = document.getElementById('w-reported');
+      const upEl = document.getElementById('updated-time');
+      
+      if (contEl) contEl.textContent = containers.length;
+      if (connEl) connEl.textContent = totalConns;
+      if (repEl) repEl.textContent = snap.reportedAt + ' UTC';
+      if (upEl) upEl.textContent = 'Last update: ' + new Date().toLocaleTimeString();
+
+      const statusEl = document.getElementById('w-status');
+      if (statusEl) {
+          if (stale) {
+            statusEl.innerHTML = '<span class="status-dot dot-stale"></span>Stale';
+            statusEl.style.color = '#d97706';
+          } else {
+            statusEl.innerHTML = '<span class="status-dot dot-online"></span>Online';
+            statusEl.style.color = '#10b981';
+          }
+      }
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(AGENT_KEY)}`);
+        if (res.status === 404) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        render(await res.json());
+      } catch (e) {
+        const upEl = document.getElementById('updated-time');
+        if (upEl) upEl.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PeerCaaS — Client Dashboard</title>
+  <style>
+    :root {
+        --primary-color: #b91c1c;
+        --bg-color: #f8fafc;
+        --border-color: #e2e8f0;
+        --text-main: #1e293b;
+        --text-muted: #64748b;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-color);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-size: 14px;
+      padding: 24px;
+    }
+
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: #dbeafe; color: #1e40af; }
+    .agent-key { font-family: monospace; font-size: 12px; color: var(--text-muted); }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; }
+    .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+    .card-value { font-size: 28px; font-weight: 800; }
+    .tx { color: var(--primary-color); }
+    .rx { color: #2563eb; }
+
+    .table-wrap { background: white; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { padding: 12px 16px; background: #f8fafc; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+    
+    .transport-badge { padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
+    .t-webrtc { background: #dbeafe; color: #1e40af; }
+    .t-relay { background: #ffedd5; color: #9a3412; }
+
+    .waiting { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted); }
+    .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="badge">Client Agent</span>
+    <span class="agent-key" th:text="${key}">key</span>
+    <span id="updated-time" style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Connecting…</span>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="card-label">↑ Total Tx</div><div class="card-value tx" id="s-tx">—</div></div>
+    <div class="card"><div class="card-label">↓ Total Rx</div><div class="card-value rx" id="s-rx">—</div></div>
+    <div class="card"><div class="card-label">Containers</div><div class="card-value" id="s-containers">—</div></div>
+    <div class="card"><div class="card-label">Connections</div><div class="card-value" id="s-conns">—</div></div>
+  </div>
+
+  <div id="table-area">
+    <div class="waiting"><div class="spinner"></div><div style="font-weight: 600;">Connecting to Client Agent...</div></div>
+  </div>
+
+  <script th:inline="javascript">
+    const AGENT_KEY = [[${key}]];
+
+    function fmtBytes(n) {
+      n = Number(n) || 0;
+      if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
+      if (n >= 1048576)    return (n / 1048576).toFixed(2)    + ' MB';
+      if (n >= 1024)       return (n / 1024).toFixed(1)       + ' KB';
+      return n + ' B';
+    }
+
+    function render(snap) {
+      const containers = snap.containers || [];
+      let totalTx = 0, totalRx = 0, totalConns = 0;
+      containers.forEach(c => { totalTx += c.txBytes || 0; totalRx += c.rxBytes || 0; totalConns += c.connCount || 0; });
+
+      document.getElementById('s-tx').textContent = fmtBytes(totalTx);
+      document.getElementById('s-rx').textContent = fmtBytes(totalRx);
+      document.getElementById('s-containers').textContent = containers.length;
+      document.getElementById('s-conns').textContent = totalConns;
+      document.getElementById('updated-time').textContent = 'Last update: ' + new Date().toLocaleTimeString();
+
+      const area = document.getElementById('table-area');
+      if (containers.length === 0) {
+        area.innerHTML = '<div class="waiting"><div>No active traffic.</div></div>';
+        return;
+      }
+
+      const rows = containers.map(c => `
+        <tr>
+          <td style="font-family: monospace;">${c.containerId}</td>
+          <td><span class="transport-badge ${c.transport === 'webrtc' ? 't-webrtc' : 't-relay'}">${c.transport.toUpperCase()}</span></td>
+          <td class="tx">${fmtBytes(c.txBytes)}</td>
+          <td class="rx">${fmtBytes(c.rxBytes)}</td>
+          <td>${c.connCount}</td>
+        </tr>`).join('');
+
+      area.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Container ID</th><th>Transport</th><th>↑ Tx</th><th>↓ Rx</th><th>Conns</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(AGENT_KEY)}`);
+        if (res.status === 404) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        render(await res.json());
+      } catch (e) {}
+    }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>
