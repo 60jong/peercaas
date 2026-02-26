@@ -51,9 +51,10 @@ func main() {
 		QueueName: cfg.Worker.ResultQueue,
 	}
 
-	// 5. ContainerStore + TrafficStore 생성
+	// 5. ContainerStore + TrafficStore + LatencyMeasurer 생성
 	store := worker.NewContainerStore()
 	traffic := metrics.NewTrafficStore()
+	latency := metrics.NewLatencyMeasurer(cfg.Worker.HubURL)
 
 	// 6. 핸들러 등록
 	agent.Register("CREATE_CONTAINER", &worker.CreateContainerHandler{
@@ -83,9 +84,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// 8. Latency 측정 시작
+	go latency.Start(ctx)
+
 	log.Printf("=== PeerCaaS Worker Agent === (Unified Metrics via RMQ)")
 
-	if err := agent.Run(ctx, queueName, traffic); err != nil {
+	if err := agent.Run(ctx, queueName, traffic, latency); err != nil {
 		log.Printf("Worker terminated with error: %v", err)
 	}
 }

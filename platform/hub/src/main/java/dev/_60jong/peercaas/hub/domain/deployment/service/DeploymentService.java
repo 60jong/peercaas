@@ -12,6 +12,7 @@ import dev._60jong.peercaas.hub.domain.deployment.model.vo.CreateDeploymentReque
 import dev._60jong.peercaas.hub.domain.deployment.model.entity.Deployment;
 import dev._60jong.peercaas.hub.domain.deployment.model.vo.DeploymentResultPayload;
 import dev._60jong.peercaas.hub.domain.deployment.repository.DeploymentRepository;
+import dev._60jong.peercaas.hub.domain.deployment.service.scheduler.ScoringContext;
 import dev._60jong.peercaas.hub.domain.deployment.service.scheduler.WorkerScheduler;
 import dev._60jong.peercaas.hub.domain.member.model.entity.Member;
 import dev._60jong.peercaas.hub.domain.member.service.MemberService;
@@ -43,10 +44,15 @@ public class DeploymentService {
         String traceId = KeyGenerator.generate();
 
         // 1. 타겟 Worker Agent 고르기
-        WorkerAgent targetWorker = workerScheduler.selectBestWorker(
-                request.toEntityParam(traceId, null, null).getCpuLimit(),
-                request.toEntityParam(traceId, null, null).getMemoryMbLimit()
-        ).orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
+        DeploymentParam tempParam = request.toEntityParam(traceId, null, null);
+        ScoringContext scoringContext = ScoringContext.builder()
+                .clientIpAddress(request.getClientIpAddress())
+                .requiredCpu(tempParam.getCpuLimit())
+                .requiredMemoryMb(tempParam.getMemoryMbLimit())
+                .build();
+
+        WorkerAgent targetWorker = workerScheduler.selectBestWorker(scoringContext)
+                .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
 
         String targetWorkerId = targetWorker.getWorkerId();
         log.info("[Deployment Start] TraceID: {}, Worker: {}", traceId, targetWorkerId);

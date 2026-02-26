@@ -31,9 +31,9 @@ func (w *WorkerAgent) Register(cmdType string, handler core.CommandHandler) {
 	w.handlers[cmdType] = handler
 }
 
-func (w *WorkerAgent) Run(ctx context.Context, queueName string, traffic *metrics.TrafficStore) error {
+func (w *WorkerAgent) Run(ctx context.Context, queueName string, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer) error {
 	// 하트비트 시작 (통합 메트릭 포함)
-	go StartHeartbeat(ctx, w.mq, w.workerID, w.heartbeatQueue, traffic)
+	go StartHeartbeat(ctx, w.mq, w.workerID, w.heartbeatQueue, traffic, latency)
 
 	events, err := w.mq.Subscribe(ctx, queueName)
 	if err != nil {

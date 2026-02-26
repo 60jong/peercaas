@@ -25,7 +25,7 @@ type ContainerSnapshot struct {
 	RxBytes     int64  `json:"rxBytes"`
 }
 
-func StartHeartbeat(ctx context.Context, mq core.Broker, workerID string, queueName string, traffic *metrics.TrafficStore) {
+func StartHeartbeat(ctx context.Context, mq core.Broker, workerID string, queueName string, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer) {
 	ticker := time.NewTicker(5 * time.Second) // 통합 보고이므로 주기를 5초로 단축
 	defer ticker.Stop()
 
@@ -36,12 +36,12 @@ func StartHeartbeat(ctx context.Context, mq core.Broker, workerID string, queueN
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sendHeartbeat(ctx, mq, workerID, queueName, traffic)
+			sendHeartbeat(ctx, mq, workerID, queueName, traffic, latency)
 		}
 	}
 }
 
-func sendHeartbeat(ctx context.Context, mq core.Broker, workerID string, queueName string, traffic *metrics.TrafficStore) {
+func sendHeartbeat(ctx context.Context, mq core.Broker, workerID string, queueName string, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer) {
 	// 1. 시스템 리소스 수집
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -62,7 +62,7 @@ func sendHeartbeat(ctx context.Context, mq core.Broker, workerID string, queueNa
 		WorkerID:          workerID,
 		AvailableCpu:      float64(runtime.NumCPU()),
 		AvailableMemoryMb: availableMem,
-		AverageLatencyMs:  10.5, // TODO: 실측 로직
+		AverageLatencyMs:  latency.Get(),
 		Containers:        containers,
 	}
 

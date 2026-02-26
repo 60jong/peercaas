@@ -17,6 +17,9 @@ public class CreateDeploymentRequest {
     // 요청자
     private Long requesterId;
 
+    // 클라이언트 IP (서버에서 설정)
+    private String clientIpAddress;
+
     // 컨테이너 스펙
     private String name;
     private String image;
@@ -61,6 +64,10 @@ public class CreateDeploymentRequest {
 
     public void setRequesterId(Long requesterId) {
         this.requesterId = requesterId;
+    }
+
+    public void setClientIpAddress(String clientIpAddress) {
+        this.clientIpAddress = clientIpAddress;
     }
 
     // --- 아래는 밖에서 볼 필요 없는 Private Helper 메서드들 ---

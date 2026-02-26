@@ -28,6 +28,9 @@ dependencies {
 
     implementation 'at.favre.lib:bcrypt:0.10.2'
 
+    // [GeoIP] MaxMind GeoLite2 IP 위치 조회
+    implementation 'com.maxmind.geoip2:geoip2:4.2.0'
+
     // [JWT] 토큰 생성 및 파싱
     implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'

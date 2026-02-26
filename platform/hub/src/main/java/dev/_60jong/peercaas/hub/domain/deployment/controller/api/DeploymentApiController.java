@@ -6,6 +6,7 @@ import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.Create
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.DeploymentInfoResponse;
 import dev._60jong.peercaas.hub.domain.deployment.service.DeploymentService;
 import dev._60jong.peercaas.hub.global.aspect.auth.Authenticated;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,11 +23,21 @@ public class DeploymentApiController {
     @PostMapping("")
     public ApiResponse<CreateDeploymentResponse> createDeployment(
             @Authenticated Long requesterId,
-            @RequestBody CreateDeploymentRequest request
+            @RequestBody CreateDeploymentRequest request,
+            HttpServletRequest httpRequest
     ) {
         request.setRequesterId(requesterId);
+        request.setClientIpAddress(extractClientIp(httpRequest));
 
         return ApiResponse.accepted(deploymentService.deploy(request));
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        String xForwardedFor = request.getHeader("X-Forwarded-For");
+        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
+            return xForwardedFor.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     /**
