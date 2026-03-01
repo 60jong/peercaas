@@ -30,10 +30,15 @@ type RabbitMQConfig struct {
 }
 
 type WorkerConfig struct {
-	WorkerID    string `mapstructure:"worker_id"`
-	ResultQueue string `mapstructure:"result_queue"`
-	Concurrency int    `mapstructure:"concurrency"`
-	HubURL      string `mapstructure:"hub_url"`
+	WorkerID      string `mapstructure:"worker_id"`
+	ResultQueue   string `mapstructure:"result_queue"`
+	Concurrency   int    `mapstructure:"concurrency"`
+	HubURL        string `mapstructure:"hub_url"`
+	MaxCPU        float64 `mapstructure:"max_cpu"`
+	MaxMemoryMb   int64   `mapstructure:"max_memory_mb"`
+	VMURL         string  `mapstructure:"vm_url"`
+	VMUser        string  `mapstructure:"vm_user"`
+	VMPass        string  `mapstructure:"vm_pass"`
 }
 
 type ClientConfig struct {
@@ -66,6 +71,8 @@ func Load(configName string) *Config {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	_ = viper.BindEnv("worker.worker_id", "WORKER_ID")
+	_ = viper.BindEnv("worker.max_cpu", "MAX_CPU")
+	_ = viper.BindEnv("worker.max_memory_mb", "MAX_MEMORY_MB")
 
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: Config file '%s' not found. Relying on Env vars.", configName)

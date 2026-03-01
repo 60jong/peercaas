@@ -1,16 +1,19 @@
 server:
-  name: worker-node-01
+  name: local-worker-node
 
 rabbitmq:
-  host: localhost
+  host: 58.143.80.18
   port: 5672
   username: root
   password: 991911
 
-# Worker 전용 설정
 worker:
   worker_id: test-worker
-  subscribe_queue: test-worker
   result_queue: peercaas.worker.events
   concurrency: 5
-  hub_url: http://localhost:8080
+  hub_url: http://localhost:8080 # 테스트용 (실제 허브가 없어도 메트릭은 쌓임)
+  max_cpu: 4.0
+  max_memory_mb: 4096
+  vm_url: https://grafana.peercaas.60jong.dev/vm/write
+  vm_user: admin
+  vm_pass: 991911
