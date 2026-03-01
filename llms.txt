@@ -1,28 +1,28 @@
 # PeerCaaS (Peer Container as a Service)
 
-탈중앙화 P2P 컴퓨팅 리소스 공유 플랫폼입니다. **공급자**는 유휴 하드웨어(CPU, 메모리, 트래픽)를 제공하여 리워드를 획득하고, **사용자**는 원격의 고성능 컨테이너를 무료로 사용하여 로컬 리소스를 절약할 수 있습니다.
+A decentralized P2P computing resource sharing platform. **Suppliers** earn rewards by providing idle hardware (CPU/Mem/Traffic), while **Consumers** access high-performance remote containers for free to save local resources.
 
-## 1. 핵심 컨셉
-- **리워드 생태계**: 공급자는 워커 에이전트를 통해 컨테이너를 호스팅하고, 검증된 사용량 메트릭에 따라 보상을 받습니다.
-- **심리스한 접속**: 사용자는 클라이언트 에이전트를 사용하여 WebRTC(P2P) 또는 TCP 릴레이를 통해 원격 컨테이너를 로컬 포트처럼 사용합니다.
+## 1. Core Concept
+- **Reward Ecosystem**: Suppliers host containers via Worker Agents and get paid based on verified usage metrics.
+- **Seamless Access**: Consumers use Client Agents to tunnel remote containers to local ports via WebRTC (P2P) or TCP Relay fallback.
 
-## 2. 기술적 신뢰성 (설계 의도)
-- **정산 유실 방지 (At-Least-Once)**: 모든 메트릭은 중앙 서버 전송 전 **SQLite (WAL 모드)**에 영속화됩니다. 네트워크 장애 시에도 공급자의 보상이 누락되지 않도록 보장합니다.
-- **하이브리드 연결**: 설정 없는 P2P 연결을 위해 **Pion WebRTC**를 사용하며, 방화벽 환경을 위해 Java NIO 기반의 **TCP 랑데부 릴레이** 서버를 운영합니다.
+## 2. Technical Reliability (The "Why")
+- **At-Least-Once Billing**: Metrics are persisted to **SQLite (WAL mode)** before being shipped to **VictoriaMetrics**. This ensures suppliers are always rewarded even during network outages.
+- **Hybrid Connectivity**: Uses **Pion WebRTC** for zero-config P2P, with a **TCP Rendezvous Relay** (Java NIO) for restrictive NAT traversal.
 
-## 3. 기술 스택
-- **제어/릴레이 평면**: Java 21, Spring Boot 3.4, RabbitMQ, MariaDB.
-- **데이터 평면 (에이전트)**: Go 1.23+, Docker SDK, Pion WebRTC, SQLite3.
-- **관제/모니터링**: VictoriaMetrics (TSDB), SQLite (로컬 영속성).
+## 3. Tech Stack
+- **Control/Relay Plane**: Java 21, Spring Boot 3.4, RabbitMQ, MariaDB.
+- **Data Plane**: Go 1.23+, Docker SDK, Pion WebRTC, SQLite3.
+- **Observability**: VictoriaMetrics (TSDB), SQLite (Local Persistence).
 
-## 4. 핵심 로직 위치
-- **리워드/정산 로직**: `agents/internal/metrics/reporter.go` (SQLite에서 VM으로 전송).
-- **리소스 모니터링**: `agents/internal/app/worker/heartbeat.go` (유휴 자원 보고).
-- **연결 관리**: `agents/internal/app/client/connection_manager.go` (WebRTC/릴레이 전환).
-- **릴레이 랑데부**: `platform/engine/src/main/java/dev/_60jong/peercaas/engine/relay/server/TcpRelayServer.java`.
+## 4. Key Logic Deep-Dive
+- **Billing/Reward Logic**: `agents/internal/metrics/reporter.go` (SQLite-to-VM shipping).
+- **Resource Monitoring**: `agents/internal/app/worker/heartbeat.go` (Idle resource reporting).
+- **Connection Management**: `agents/internal/app/client/connection_manager.go` (WebRTC/Relay switching).
+- **Relay Rendezvous**: `platform/engine/src/main/java/dev/_60jong/peercaas/engine/relay/server/TcpRelayServer.java`.
 
-## 5. 프로젝트 구조
-- `/platform/hub`: 리소스 매칭, 시그널링 및 리워드 관리.
-- `/platform/engine`: TCP 릴레이 세션 조율.
-- `/agents/cmd/worker`: 공급자용 에이전트 (호스팅 및 메트릭).
-- `/agents/cmd/client`: 사용자용 에이전트 (터널링 및 접속).
+## 5. Directory Structure
+- `/platform/hub`: Resource matching, signaling, and reward management.
+- `/platform/engine`: TCP Relay session coordination.
+- `/agents/cmd/worker`: Supplier-side agent (Hosting & Metrics).
+- `/agents/cmd/client`: Consumer-side agent (Tunneling & Access).
