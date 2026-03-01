@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -105,6 +106,14 @@ func (s *TrafficStore) GetOrCreate(containerID, transport string) *ContainerTraf
 	return t
 }
 
+// Get returns the existing traffic entry for a container.
+func (s *TrafficStore) Get(containerID string) (*ContainerTraffic, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.data[containerID]
+	return t, ok
+}
+
 // All returns a snapshot of all ContainerTraffic entries.
 func (s *TrafficStore) All() []*ContainerTraffic {
 	s.mu.RLock()
@@ -148,16 +157,32 @@ func BridgeWithTraffic(remote, local io.ReadWriteCloser, stats *ContainerTraffic
 	cwRemote := &countingWriter{w: remote, add: stats.AddTx}
 	cwLocal := &countingWriter{w: local, add: stats.AddRx}
 
+	bridgeStart := time.Now()
+	log.Printf("[Timing][Bridge] Started for container=%s transport=%s", stats.ContainerID, stats.Transport())
+
 	done := make(chan struct{}, 2)
 	go func() {
+		start := time.Now()
+		txBefore := stats.Tx()
 		io.Copy(cwRemote, local) // local → remote (TX)
+		elapsed := time.Since(start)
+		txBytes := stats.Tx() - txBefore
+		log.Printf("[Timing][Bridge] TX done: %s in %v (%.1f KB/s) container=%s",
+			FormatBytes(txBytes), elapsed, float64(txBytes)/1024/elapsed.Seconds(), stats.ContainerID)
 		done <- struct{}{}
 	}()
 	go func() {
+		start := time.Now()
+		rxBefore := stats.Rx()
 		io.Copy(cwLocal, remote) // remote → local (RX)
+		elapsed := time.Since(start)
+		rxBytes := stats.Rx() - rxBefore
+		log.Printf("[Timing][Bridge] RX done: %s in %v (%.1f KB/s) container=%s",
+			FormatBytes(rxBytes), elapsed, float64(rxBytes)/1024/elapsed.Seconds(), stats.ContainerID)
 		done <- struct{}{}
 	}()
 	<-done
+	log.Printf("[Timing][Bridge] Closing after %v container=%s", time.Since(bridgeStart), stats.ContainerID)
 	remote.Close()
 	local.Close()
 }
