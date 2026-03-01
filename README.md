@@ -1,35 +1,29 @@
 # PeerCaaS — Peer Container as a Service
 
-원격 Docker 컨테이너의 포트를 로컬에서 직접 사용할 수 있게 해주는 WebRTC 기반 터널링 서비스.
+사용하지 않는 내 컴퓨터의 리소스로 리워드를 얻고, 로컬 리소스가 부족할 때는 남의 리소스에서 무료로 컨테이너를 빌려 쓰는 **P2P 리소스 공유 플랫폼**입니다.
 
-클라이언트는 별도의 포트 포워딩이나 VPN 없이, **로컬 포트에 접속하는 것만으로** 원격 컨테이너에 연결된다.
-
----
-
-## 어떻게 동작하나
-
-```
-[사용자]
-   │  mysql -h 127.0.0.1 -P 3306
-   ▼
-[Client Agent]  ←── WebRTC DataChannel (P2P) ───→  [Worker Agent]
-  로컬 포트                                              │
-  리스닝                                           컨테이너 포트
-                                                   브릿지
-                                                        │
-                                                  [Docker Container]
-                                                   MySQL :3306
-```
-
-WebRTC 연결이 불가한 환경(방화벽, 대칭 NAT)에서는 Engine의 TCP Relay를 통해 자동으로 fallback하며, 백그라운드에서 WebRTC 재연결을 주기적으로 시도한다.
+[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go)](https://go.dev/)
+[![Java Version](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk)](https://openjdk.org/)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.4-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
 
 ---
 
-## 시스템 아키텍처
+## 1. 서비스 컨셉 (Core Value)
 
+PeerCaaS는 탈중앙화된 컴퓨팅 리소스 공유 생태계를 구축합니다.
+
+- **공급자 (Supplier)**: 본인의 PC나 서버의 남는 CPU/Memory를 제공하여 리워드(Point/Reward)를 획득합니다.
+- **사용자 (Consumer)**: 로컬 사양이 부족하거나 무거운 작업을 수행할 때, 다른 사람의 리소스를 빌려 무료로 Docker 컨테이너를 구동합니다.
+- **연결 (Tunneling)**: WebRTC P2P 기술을 통해 원격 컨테이너를 마치 내 로컬 포트(`127.0.0.1:3306`)에 띄운 것처럼 투명하게 사용합니다.
+
+---
+
+## 2. 시스템 아키텍처 (System Architecture)
+
+### 2.1. 전체 구성도
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      Client 측                          │
+│                Consumer 측 (사용자)                      │
 │                                                         │
 │   [사용자 앱]  ──TCP──▶  [Client Agent (Go)]            │
 │                            │       ▲                    │
@@ -40,9 +34,9 @@ WebRTC 연결이 불가한 환경(방화벽, 대칭 NAT)에서는 Engine의 TCP 
                     │      platform/hub        │  ← REST / SSE
                     │    (Spring Boot :8080)   │  ← RabbitMQ
                     │                         │
-                    │  - 배포 관리             │
-                    │  - WebRTC 시그널링       │
-                    │  - Relay 세션 조율       │
+                    │  - 리소스 매칭/정산 관리     │
+                    │  - WebRTC 시그널링        │
+                    │  - Relay 세션 조율        │
                     └──────┬──────────────────┘
                            │
               ┌────────────┴────────────┐
@@ -56,259 +50,121 @@ WebRTC 연결이 불가한 환경(방화벽, 대칭 NAT)에서는 Engine의 TCP 
    └──────────────────────┘              │
                                 ┌────────▼────────────┐
                                 │  Worker Agent (Go)   │
+                                │   (Supplier - 공급자)  │
                                 │                      │
-                                │  - Docker 컨테이너   │
-                                │    생성/삭제         │
-                                │  - WebRTC 응답       │
-                                │  - Relay 연결        │
+                                │  - Docker 컨테이너 호스팅│
+                                │  - 리소스/정산 메트릭 보고│
+                                │  - WebRTC/Relay 연결   │
                                 └──────────────────────┘
 ```
 
----
-
-## 컴포넌트
-
-### platform/hub (Spring Boot)
-전체 시스템의 컨트롤 플레인.
-
-| 역할 | 설명 |
-|------|------|
-| 배포 관리 | 컨테이너 생성/삭제 요청을 Worker에 RabbitMQ로 전달 |
-| Container 도메인 | 실행 중인 컨테이너 정보 관리 (containerId, portBindings, workerId) |
-| WebRTC 시그널링 | Client의 SDP offer를 Worker에 중계하고 answer를 반환 |
-| Relay 조율 | Engine에 relay 세션 생성 요청 후 Worker에 RELAY_CONNECT 전달 |
-| SSE 알림 | 배포 완료/실패를 클라이언트에 실시간 푸시 |
-
-### platform/engine (Spring Boot)
-네트워크 relay 서비스.
-
-| 역할 | 설명 |
-|------|------|
-| TCP Relay 서버 | 세션 토큰 기반 1:1 TCP 브릿지 (`:6006`) |
-| 세션 관리 | CountDownLatch 기반 두 소켓 랑데부 |
-
-### agents/worker (Go)
-Worker 노드에서 실행되는 에이전트.
-
-| 역할 | 설명 |
-|------|------|
-| 컨테이너 생성 | Docker 이미지 풀 → 컨테이너 생성/시작 → 결과 응답 |
-| WebRTC 처리 | SDP answer 생성, DataChannel로 컨테이너 포트 브릿지 |
-| Relay 처리 | Engine relay 서버에 연결, 컨테이너 포트와 브릿지 |
-
-### agents/client (Go)
-클라이언트 측에서 실행되는 에이전트.
-
-| 역할 | 설명 |
-|------|------|
-| 로컬 포트 리스닝 | 컨테이너 포트와 동일한 번호로 로컬 TCP 리스닝 |
-| ConnectionManager | WebRTC / Relay 전환 + 백그라운드 retry 전략 |
-
----
-
-## 연결 전략 (ConnectionManager)
+### 2.2. 신뢰성 있는 리워드 정산 (Metrics & Reward Reliability)
+공급자가 제공한 리소스(CPU, Mem, Traffic)가 유실 없이 정산됨을 보장하는 메커니즘입니다.
 
 ```
-시작
-  │
-  ▼
-WebRTC 연결 시도 (15초 타임아웃)
-  │
-  ├─ 성공 ──▶ WebRTC로 서비스
-  │              │
-  │              └─ 연결 끊김 ──▶ Relay 전환 + retry 루프
-  │
-  └─ 실패 ──▶ TCP Relay 전환
-                │
-                └─ 백그라운드 retry: 30s → 1m → 2m → 2m ...
-                      │
-                      ├─ 성공 ──▶ WebRTC hot-swap
-                      │          (새 연결부터 WebRTC 사용)
-                      └─ 실패 ──▶ relay 유지, 다음 retry 예약
+[ Supplier Node (Worker Agent) ]
+┌───────────────────────────────────────────────────────────┐
+│  [ Docker SDK ]  ──(1) Usage Stat──▶ [ Metric Collector ]  │
+│                                              │            │
+│  [ Local Storage ] ◀──(2) Persistence ── [ SQLite (WAL) ] │
+│        (유실 방지)                            │            │
+│  [ VM Shipper ]  ◀──(3) Ship 1m Batch ───────┘            │
+└────────┬──────────────────────────────────────────────────┘
+         │
+         ▼ (4) At-Least-Once Delivery (HTTPS Auth)
+┌───────────────────────────────────────────────────────────┐
+│                [ PeerCaaS Central System ]                │
+│                                                           │
+│  [ VictoriaMetrics ] ──(5) Aggregation ──▶ [ Hub / Reward ]│
+│    (고성능 TSDB)                            (포인트/정산)   │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 전체 흐름
+## 3. 핵심 설계 결정 (Why PeerCaaS?)
 
-### 1. 컨테이너 배포
+### 3.1. 탈중앙화된 리소스 수집 (Why Decentralized?)
+- 특정 데이터센터에 의존하지 않고 전 세계 사용자의 유휴 자원을 활용하여 비용을 최소화합니다.
+- **Decision**: 가볍고 설치가 간편한 **Go 기반 에이전트**를 배포하여 누구나 쉽게 공급자가 될 수 있게 설계했습니다.
 
+### 3.2. 신뢰할 수 있는 리워드 정산 (Why SQLite WAL?)
+- 공급자가 제공한 리소스 양에 따라 정확한 리워드가 지급되어야 합니다.
+- **Decision**: 네트워크 장애 시에도 메트릭이 유실되지 않도록 **로컬 SQLite에 먼저 기록**하고, 중앙 서버(VictoriaMetrics)로 성공적으로 전송될 때까지 보관하는 `At-Least-Once` 전송 전략을 구현했습니다.
+
+### 3.3. 투명한 네트워크 사용 (Why WebRTC?)
+- VPN이나 복잡한 포트 포워딩 없이 원격 리소스에 즉시 연결되어야 합니다.
+- **Decision**: **Pion WebRTC**를 사용하여 P2P 터널을 뚫고, 방화벽 환경에서는 자동으로 **TCP Relay**로 전환되는 하이브리드 연결 방식을 채택했습니다.
+
+---
+
+## 4. 아키텍처 플로우 (Architecture Flow)
+
+### 4.1. 컨테이너 배포 및 리소스 매칭
+```mermaid
+sequenceDiagram
+    participant C as Consumer
+    participant H as Hub
+    participant W as Worker (Supplier)
+
+    C->>H: POST /deployment (Image: mysql:8)
+    H->>H: 가용 리소스 기반 공급자 매칭
+    H-->>W: [RMQ] CREATE_CONTAINER
+    W->>W: Docker Run (Resource Limit 적용)
+    W-->>H: [RMQ] DEPLOY_RESULT
+    H-->>C: [SSE] 배포 완료 알림
 ```
-Client          Hub             RabbitMQ        Worker
-  │                │                │              │
-  ├─ POST /deployment ──────────────▶              │
-  │                │                │              │
-  │                ├─ CREATE_CONTAINER ────────────▶
-  │                │                │              │
-  │                │                │◀─ DEPLOYMENT_RESULT
-  │                │                │              │
-  │◀── SSE: containerId ────────────┤              │
-```
 
-### 2. WebRTC 터널 연결
+### 4.2. WebRTC 터널 연결 (P2P)
+```mermaid
+sequenceDiagram
+    participant CA as Client Agent
+    participant H as Hub
+    participant WA as Worker Agent
 
-```
-Client Agent    Hub             RabbitMQ        Worker Agent
-  │                │                │              │
-  ├─ GET /containers/{id} ─────────▶              │
-  │◀── containerInfo ───────────────┤              │
-  │                │                │              │
-  ├─ POST /containers/{id}/connect ─▶              │
-  │                ├─ CONNECT_WEBRTC ──────────────▶
-  │                │◀── answer (reply queue) ───────┤
-  │◀── SDP answer ─┤                │              │
-  │                │                │              │
-  │════════════ WebRTC DataChannel (P2P) ══════════│
-  │                │                │              │
-  ├─ TCP :3306 ──▶ DataChannel ─────────────────▶ ├─▶ Docker :33060
-```
-
-### 3. Relay Fallback
-
-```
-Client Agent    Hub             Engine          Worker Agent
-  │                │                │              │
-  ├─ POST /containers/{id}/relay ───▶              │
-  │                ├─ POST /relay/sessions ───────▶│ (세션 토큰 발급)
-  │                ├─ RELAY_CONNECT ──────────────────────────▶
-  │◀── {relayHost, token} ──────────┤              │              │
-  │                │                │              │              │
-  ├─ TCP connect + token ──────────▶│◀─ TCP connect + token ─────┤
-  │                │                │              │
-  │════════════════════ TCP Relay Bridge ══════════│
+    CA->>H: GET /containers/{id}/connect (SDP Offer)
+    H-->>WA: [RMQ] CONNECT_WEBRTC
+    WA-->>H: [RMQ] SDP Answer
+    H-->>CA: SDP Answer 전송
+    CA->>WA: WebRTC DataChannel (P2P) 연결
+    Note over CA, WA: 로컬 포트 <-> 원격 컨테이너 포트 브릿징
 ```
 
 ---
 
-## 기술 스택
+## 5. 상세 기술 스택 (Tech Stack)
 
-| 구분 | 기술 |
-|------|------|
-| Hub / Engine | Java 21, Spring Boot 3, JPA, RabbitMQ, SSE |
-| Agents | Go, Pion WebRTC, Docker SDK |
-| 데이터베이스 | MariaDB |
-| 메시지 브로커 | RabbitMQ |
-| 컨테이너 런타임 | Docker |
-
----
-
-## 로컬 실행
-
-### 사전 준비
-
-```bash
-# RabbitMQ
-docker run -d --name rabbitmq \
-  -e RABBITMQ_DEFAULT_USER=root \
-  -e RABBITMQ_DEFAULT_PASS=991911 \
-  -p 5672:5672 -p 15672:15672 \
-  rabbitmq:3-management
-
-# MariaDB
-docker run -d --name mariadb \
-  -e MYSQL_ROOT_PASSWORD=991911 \
-  -e MYSQL_DATABASE=peercaas \
-  -p 3306:3306 \
-  mariadb:10.11
-```
-
-### 서비스 시작 순서
-
-```bash
-# 1. Hub (port 8080)
-cd platform && ./gradlew :hub:bootRun
-
-# 2. Engine (port 8090, relay port 6006)
-cd platform && ./gradlew :engine:bootRun
-
-# 3. Worker Agent
-cd agents
-WORKER_ID=worker-node-01 go run ./cmd/worker/main.go
-
-# 4. Client Agent (컨테이너 배포 완료 후)
-cd agents
-CONTAINER_ID=<containerId> go run ./cmd/client/main.go
-```
-
-### 컨테이너 배포 예시
-
-```bash
-# 회원 가입 & 로그인
-curl -X POST http://localhost:8080/api/v1/members \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","password":"password123","name":"test"}'
-
-TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/signin \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@test.com","password":"password123"}' \
-  | jq -r '.data.accessToken')
-
-# MySQL 컨테이너 배포
-curl -X POST http://localhost:8080/api/v1/deployment \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-mysql",
-    "image": "mysql:8",
-    "ports": [{"containerPort": 3306, "hostPort": 33060, "protocol": "tcp"}],
-    "env": {"MYSQL_ROOT_PASSWORD": "secret"},
-    "resources": {"memoryMb": 512, "cpu": 0.5},
-    "restartPolicy": "no"
-  }'
-
-# SSE로 배포 완료 대기
-curl -N "http://localhost:8080/api/v1/notifications/subscribe?clientId=client-1"
-```
-
-```bash
-# Client Agent 실행 (SSE에서 받은 containerId 사용)
-CONTAINER_ID=<containerId> go run ./cmd/client/main.go
-
-# 로컬에서 MySQL 접속
-mysql -h 127.0.0.1 -P 3306 -u root -psecret
-```
+| 구분 | 기술 | 상세 |
+|:---:|:---|:---|
+| **Hub** | Java 21, Spring Boot 3.4 | 리소스 매칭, 시그널링, 리워드 정산 로직 |
+| **Engine** | Java 21, Spring Boot 3.4 | TCP 랑데부 릴레이 서버 |
+| **Worker Agent** | Go 1.23+, Docker SDK | 공급자용 리소스 모니터링 및 컨테이너 호스팅 |
+| **Client Agent** | Go 1.23+, Pion WebRTC | 사용자용 터널링 및 커넥션 매니저 |
+| **Monitoring** | SQLite, VictoriaMetrics | At-Least-Once 메트릭 수집 및 시계열 분석 |
 
 ---
 
-## 설정
+## 6. 프로젝트 구조 (Directory Structure)
 
-### Worker Agent (`agents/configs/worker.yaml`)
-
-```yaml
-worker:
-  worker_id: worker-node-01    # Worker 식별 ID (RabbitMQ 큐 이름)
-  result_queue: peercaas.worker.events
-  concurrency: 5
-```
-
-### Client Agent (환경변수)
-
-| 변수 | 필수 | 기본값 | 설명 |
-|------|------|--------|------|
-| `CONTAINER_ID` | ✓ | - | 접속할 컨테이너 ID |
-| `HUB_URL` | | `http://localhost:8080` | Hub 서버 주소 |
-
----
-
-## 프로젝트 구조
-
-```
+```text
 peercaas/
-├── platform/               # JVM 서비스 (Gradle 멀티모듈)
-│   ├── common/             # 공통 모듈 (ApiResponse, BaseEntity)
-│   ├── hub/                # 컨트롤 플레인 서비스
-│   └── engine/             # TCP Relay 서비스
-│
-└── agents/                 # Go 에이전트
-    ├── cmd/
-    │   ├── worker/         # Worker Agent 진입점
-    │   └── client/         # Client Agent 진입점
-    └── internal/
-        ├── app/
-        │   ├── worker/     # CREATE_CONTAINER, CONNECT_WEBRTC, RELAY_CONNECT 핸들러
-        │   └── client/     # ConnectionManager, Tunnel, HubClient
-        ├── config/
-        ├── core/           # Broker, CommandHandler 인터페이스
-        └── infra/
-            └── mq/         # RabbitMQ 구현체
+├── platform/               # JVM 기반 컨트롤/릴레이 플레인
+│   ├── hub/                # [Control] 리소스 매칭, 시그널링, 정산(Reward) 로직
+│   └── engine/             # [Relay] TCP 릴레이 세션 조율 서버
+├── agents/                 # Go 기반 데이터 플레인
+│   ├── cmd/worker/         # [Supplier] 공급자용 에이전트 진입점
+│   ├── cmd/client/         # [Consumer] 사용자용 에이전트 진입점
+│   └── internal/
+│       ├── metrics/        # 리워드 계산을 위한 SQLite 영속 수집기
+│       └── app/            # 터널링 및 컨테이너 제어 핸들러
 ```
+
+---
+
+## 7. 코드 딥다이브 (Deep Dive)
+
+- **[Reward Metric Persistence]**: `agents/internal/metrics/reporter.go` - 리워드 유실 방지를 위한 SQLite-first 로직.
+- **[Connection Hotswap]**: `agents/internal/app/client/connection_manager.go` - WebRTC/Relay 자동 전환 및 재연결 전략.
+- **[Worker Resource Limit]**: `agents/internal/app/worker/heartbeat.go` - 공급자 유휴 자원 측정 및 정기 보고.
+
+*Last Updated: 2026-03-02 (AI & Business Optimized)*

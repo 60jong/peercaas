@@ -1,0 +1,28 @@
+# PeerCaaS (Peer Container as a Service)
+
+A decentralized P2P computing resource sharing platform. **Suppliers** earn rewards by providing idle hardware (CPU/Mem/Traffic), while **Consumers** access high-performance remote containers for free to save local resources.
+
+## 1. Core Concept
+- **Reward Ecosystem**: Suppliers host containers via Worker Agents and get paid based on verified usage metrics.
+- **Seamless Access**: Consumers use Client Agents to tunnel remote containers to local ports via WebRTC (P2P) or TCP Relay fallback.
+
+## 2. Technical Reliability (The "Why")
+- **At-Least-Once Billing**: Metrics are persisted to **SQLite (WAL mode)** before being shipped to **VictoriaMetrics**. This ensures suppliers are always rewarded even during network outages.
+- **Hybrid Connectivity**: Uses **Pion WebRTC** for zero-config P2P, with a **TCP Rendezvous Relay** (Java NIO) for restrictive NAT traversal.
+
+## 3. Tech Stack
+- **Control/Relay Plane**: Java 21, Spring Boot 3.4, RabbitMQ, MariaDB.
+- **Data Plane**: Go 1.23+, Docker SDK, Pion WebRTC, SQLite3.
+- **Observability**: VictoriaMetrics (TSDB), SQLite (Local Persistence).
+
+## 4. Key Logic Deep-Dive
+- **Billing/Reward Logic**: `agents/internal/metrics/reporter.go` (SQLite-to-VM shipping).
+- **Resource Monitoring**: `agents/internal/app/worker/heartbeat.go` (Idle resource reporting).
+- **Connection Management**: `agents/internal/app/client/connection_manager.go` (WebRTC/Relay switching).
+- **Relay Rendezvous**: `platform/engine/src/main/java/dev/_60jong/peercaas/engine/relay/server/TcpRelayServer.java`.
+
+## 5. Directory Structure
+- `/platform/hub`: Resource matching, signaling, and reward management.
+- `/platform/engine`: TCP Relay session coordination.
+- `/agents/cmd/worker`: Supplier-side agent (Hosting & Metrics).
+- `/agents/cmd/client`: Consumer-side agent (Tunneling & Access).
