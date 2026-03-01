@@ -51,10 +51,11 @@ public class DeploymentService {
                 .requiredMemoryMb(tempParam.getMemoryMbLimit())
                 .build();
 
-        WorkerAgent targetWorker = workerScheduler.selectBestWorker(scoringContext)
-                .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
-
-        String targetWorkerId = targetWorker.getWorkerId();
+//        WorkerAgent targetWorker = workerScheduler.selectBestWorker(scoringContext)
+//                .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
+//
+//        String targetWorkerId = targetWorker.getWorkerId();
+        String targetWorkerId = "test-worker";
         log.info("[Deployment Start] TraceID: {}, Worker: {}", traceId, targetWorkerId);
 
         // 2. API DTO -> Entity 변환 및 저장 (상태: PENDING)

@@ -22,10 +22,6 @@ public class GeoIpService implements LocationResolver {
         this.reader = loadDatabase(databaseResource);
     }
 
-    GeoIpService(DatabaseReader reader) {
-        this.reader = reader;
-    }
-
     private static DatabaseReader loadDatabase(Resource resource) {
         if (resource == null || !resource.exists()) {
             log.warn("[GeoIP] Database not found. Proximity scoring will return neutral scores.");

@@ -108,6 +108,27 @@ func (t *Tunnel) Connect(ctx context.Context) (*webrtc.PeerConnection, error) {
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Printf("[Tunnel] PeerConnection state: %s", state.String())
 		if state == webrtc.PeerConnectionStateConnected {
+			// ICE candidate pair 정보 로깅
+			stats := pc.GetStats()
+			var nominatedPair *webrtc.ICECandidatePairStats
+			candidates := make(map[string]webrtc.ICECandidateStats)
+
+			for _, s := range stats {
+				if pair, ok := s.(webrtc.ICECandidatePairStats); ok && pair.Nominated {
+					nominatedPair = &pair
+				}
+				if cand, ok := s.(webrtc.ICECandidateStats); ok {
+					candidates[cand.ID] = cand
+				}
+			}
+
+			if nominatedPair != nil {
+				local := candidates[nominatedPair.LocalCandidateID]
+				remote := candidates[nominatedPair.RemoteCandidateID]
+				log.Printf("[ICE] Selected Pair: %s <-> %s (RTT: %.1fms)",
+					local.CandidateType, remote.CandidateType, nominatedPair.CurrentRoundTripTime*1000)
+			}
+
 			select {
 			case connected <- struct{}{}:
 			default:

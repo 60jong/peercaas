@@ -80,9 +80,12 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 	// 3. DataChannel 핸들러 등록 (TCP 릴레이)
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
 		label := dc.Label()
-		log.Printf(">> [WEBRTC] DataChannel opened: %s (ContainerID: %s)", label, p.ContainerID)
+		dcReceived := time.Now()
+		log.Printf(">> [Timing][Worker] DataChannel received: %s (ContainerID: %s)", label, p.ContainerID)
 
 		dc.OnOpen(func() {
+			log.Printf(">> [Timing][Worker] DataChannel opened in %v (label: %s)", time.Since(dcReceived), label)
+
 			hostPort, exists := info.PortBindings[label]
 			if !exists {
 				log.Printf(">> [WEBRTC] Unknown port label: %s", label)
@@ -98,14 +101,15 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 
 			// 컨테이너의 호스트 포트로 TCP 연결
 			addr := fmt.Sprintf("127.0.0.1:%d", hostPort)
+			tcpStart := time.Now()
 			tcpConn, err := net.Dial("tcp", addr)
 			if err != nil {
 				log.Printf(">> [WEBRTC] TCP connect failed (%s): %v", addr, err)
 				dcSocket.Close()
 				return
 			}
-
-			log.Printf(">> [WEBRTC] TCP relay started: %s <-> %s", label, addr)
+			log.Printf(">> [Timing][Worker] TCP connect to container %s in %v", addr, time.Since(tcpStart))
+			log.Printf(">> [Timing][Worker] Total setup (DC received → bridge ready): %v", time.Since(dcReceived))
 
 			// 트래픽 집계 후 양방향 릴레이 (dcSocket=remote, tcpConn=local/container)
 			stats := h.Traffic.GetOrCreate(p.ContainerID, "webrtc")
@@ -117,6 +121,28 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 	// 4. 연결 상태 모니터링
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		log.Printf(">> [WEBRTC] Connection state: %s (ContainerID: %s)", state.String(), p.ContainerID)
+		if state == webrtc.PeerConnectionStateConnected {
+			// ICE candidate pair 정보 로깅
+			stats := pc.GetStats()
+			var nominatedPair *webrtc.ICECandidatePairStats
+			candidates := make(map[string]webrtc.ICECandidateStats)
+
+			for _, s := range stats {
+				if pair, ok := s.(webrtc.ICECandidatePairStats); ok && pair.Nominated {
+					nominatedPair = &pair
+				}
+				if cand, ok := s.(webrtc.ICECandidateStats); ok {
+					candidates[cand.ID] = cand
+				}
+			}
+
+			if nominatedPair != nil {
+				local := candidates[nominatedPair.LocalCandidateID]
+				remote := candidates[nominatedPair.RemoteCandidateID]
+				log.Printf(">> [ICE] Selected Pair: %s <-> %s (RTT: %.1fms)",
+					local.CandidateType, remote.CandidateType, nominatedPair.CurrentRoundTripTime*1000)
+			}
+		}
 		if state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed {
 			pc.Close()
 		}
