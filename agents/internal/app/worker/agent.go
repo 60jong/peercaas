@@ -6,46 +6,58 @@ import (
 	"log"
 	"sync"
 
+	"agents/internal/config"
 	"agents/internal/core"
 	"agents/internal/metrics"
+
+	"github.com/docker/docker/client"
 )
 
+// WorkerAgent coordinates message handling and telemetry reporting.
 type WorkerAgent struct {
-	workerID       string
-	heartbeatQueue string
-	mq             core.Broker
-	handlers       map[string]core.CommandHandler
-	wg             sync.WaitGroup
+	config    config.WorkerConfig
+	mq        core.Broker
+	dockerCli *client.Client
+	handlers  map[string]core.CommandHandler
+	heartbeat *HeartbeatManager
+	wg        sync.WaitGroup
 }
 
-func NewAgent(mq core.Broker, workerID string, heartbeatQueue string) *WorkerAgent {
+// NewAgent creates a new Worker instance with required dependencies.
+func NewAgent(mq core.Broker, cfg config.WorkerConfig, heartbeatQueue string, dockerCli *client.Client, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer, repo *metrics.MetricRepository, shipper *metrics.MetricShipper) *WorkerAgent {
+	collector := metrics.NewCollector(cfg.MaxCPU, cfg.MaxMemoryMb, dockerCli)
+	h := NewHeartbeatManager(mq, cfg.WorkerID, heartbeatQueue, traffic, latency, collector, repo, shipper, dockerCli)
+
 	return &WorkerAgent{
-		workerID:       workerID,
-		heartbeatQueue: heartbeatQueue,
-		mq:             mq,
-		handlers:       make(map[string]core.CommandHandler),
+		config:    cfg,
+		mq:        mq,
+		dockerCli: dockerCli,
+		handlers:  make(map[string]core.CommandHandler),
+		heartbeat: h,
 	}
 }
 
+// Register adds a new command handler to the agent.
 func (w *WorkerAgent) Register(cmdType string, handler core.CommandHandler) {
 	w.handlers[cmdType] = handler
 }
 
+// Run starts the agent's main processing loop.
 func (w *WorkerAgent) Run(ctx context.Context, queueName string, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer) error {
-	// 하트비트 시작 (통합 메트릭 포함)
-	go StartHeartbeat(ctx, w.mq, w.workerID, w.heartbeatQueue, traffic, latency)
+	// Start the periodic telemetry reporting service
+	go w.heartbeat.Start(ctx)
 
 	events, err := w.mq.Subscribe(ctx, queueName)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("[Worker] Listening on queue: %s", queueName)
+	log.Printf("[Agent] Listening for commands on: %s", queueName)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[Worker] Shutting down...")
+			log.Println("[Agent] Shutting down...")
 			w.wg.Wait()
 			return nil
 
@@ -65,30 +77,30 @@ func (w *WorkerAgent) Run(ctx context.Context, queueName string, traffic *metric
 func (w *WorkerAgent) processEvent(ctx context.Context, e core.Event) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Worker] Panic: %v", r)
-			e.Nack() // 재시도 정책에 따라 Nack 또는 Ack 처리
+			log.Printf("[Agent] Panic recovery during event processing: %v", r)
+			e.Nack()
 		}
 	}()
 
 	var msg core.CommandMessage
 	if err := json.Unmarshal(e.Payload(), &msg); err != nil {
-		log.Printf("[Worker] JSON Error: %v", err)
-		e.Ack() // 형식이 잘못된 메시지는 버림
+		log.Printf("[Agent] Invalid command payload: %v", err)
+		e.Ack()
 		return
 	}
 
 	handler, exists := w.handlers[msg.CmdType]
 	if !exists {
-		log.Printf("[Worker] Unknown command: %s", msg.CmdType)
+		log.Printf("[Agent] Unsupported command: %s", msg.CmdType)
 		e.Ack()
 		return
 	}
 
-	log.Printf("[Worker] Processing %s (Trace: %s)", msg.CmdType, msg.TraceID)
+	log.Printf("[Agent] Executing %s (Trace: %s)", msg.CmdType, msg.TraceID)
 	if err := handler.Handle(ctx, msg); err != nil {
-		log.Printf("[Worker] Handler Error: %v", err)
-		e.Nack() // 실패 시 재시도
+		log.Printf("[Agent] Handler error (%s): %v", msg.CmdType, err)
+		e.Nack()
 	} else {
-		e.Ack() // 성공
+		e.Ack()
 	}
 }
