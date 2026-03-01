@@ -156,6 +156,9 @@ func (cm *ConnectionManager) handleConnection(ctx context.Context, conn net.Conn
 
 // handleWebRTC: WebRTC DataChannel로 릴레이
 func (cm *ConnectionManager) handleWebRTC(ctx context.Context, tcpConn net.Conn, portKey string) {
+	connStart := time.Now()
+	log.Printf("[Timing][Client] TCP accepted from %s for %s", tcpConn.RemoteAddr(), portKey)
+
 	cm.pcMu.RLock()
 	pc := cm.pc
 	cm.pcMu.RUnlock()
@@ -166,14 +169,19 @@ func (cm *ConnectionManager) handleWebRTC(ctx context.Context, tcpConn net.Conn,
 		return
 	}
 
+	dcCreateStart := time.Now()
 	dc, err := pc.CreateDataChannel(portKey, nil)
 	if err != nil {
 		log.Printf("[Manager] DataChannel create failed: %v", err)
 		tcpConn.Close()
 		return
 	}
+	log.Printf("[Timing][Client] DataChannel created in %v", time.Since(dcCreateStart))
 
 	dc.OnOpen(func() {
+		dcOpenElapsed := time.Since(connStart)
+		log.Printf("[Timing][Client] DataChannel opened in %v (since TCP accept)", dcOpenElapsed)
+
 		rawDC, err := dc.Detach()
 		if err != nil {
 			log.Printf("[Manager] Detach failed: %v", err)

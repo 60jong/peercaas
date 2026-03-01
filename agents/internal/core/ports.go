@@ -1,23 +1,34 @@
 package core
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
-// Event: MQ 수신 메시지 추상화
+// Broker defines the interface for message queuing operations.
+type Broker interface {
+	Connect() error
+	Close() error
+	Publish(ctx context.Context, queue string, body []byte) error
+	Subscribe(ctx context.Context, queue string) (<-chan Event, error)
+}
+
+// Event represents a single message from the broker.
 type Event interface {
 	Payload() []byte
 	Ack() error
 	Nack() error
 }
 
-// Broker: MQ 인프라 추상화 (Worker는 Subscribe, Client는 Publish 사용)
-type Broker interface {
-	Connect() error
-	Close() error
-	Publish(ctx context.Context, topic string, msg []byte) error
-	Subscribe(ctx context.Context, topic string) (<-chan Event, error)
-}
-
-// CommandHandler: Worker가 처리할 비즈니스 로직 인터페이스
+// CommandHandler handles specific command messages received from the broker.
 type CommandHandler interface {
 	Handle(ctx context.Context, msg CommandMessage) error
+}
+
+// CommandMessage defines the standard envelope for all internal agent commands.
+type CommandMessage struct {
+	CmdType   string          `json:"cmdType"`
+	TraceID   string          `json:"traceId"`
+	Payload   json.RawMessage `json:"payload"`
+	Timestamp int64           `json:"timestamp"`
 }
