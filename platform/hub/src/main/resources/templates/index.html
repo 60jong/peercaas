@@ -5,11 +5,93 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PeerCaaS | Decentralized Container Platform</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .hamburger-btn {
+            background: none; border: none; cursor: pointer;
+            padding: 0.3rem 0.45rem; color: var(--text-main);
+            font-size: 1.15rem; line-height: 1;
+            border-radius: 0.4rem; transition: background 0.15s; flex-shrink: 0;
+        }
+        .hamburger-btn:hover { background: var(--bg-color); }
+
+        .sidebar-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.32);
+            z-index: 800; opacity: 0; pointer-events: none; transition: opacity 0.22s;
+        }
+        .sidebar-overlay.show { opacity: 1; pointer-events: all; }
+
+        .sidebar {
+            position: fixed; top: 0; left: 0; height: 100%; width: 260px;
+            background: white; z-index: 900;
+            transform: translateX(-100%);
+            transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column;
+        }
+        .sidebar.show { transform: translateX(0); }
+
+        .sidebar-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar-logo { font-weight: 800; font-size: 1rem; color: var(--primary-color); text-decoration: none; letter-spacing: -0.02em; }
+        .sidebar-close-btn {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-muted); font-size: 1rem; padding: 0.2rem 0.35rem;
+            border-radius: 0.35rem; transition: background 0.1s;
+        }
+        .sidebar-close-btn:hover { background: var(--bg-color); }
+
+        .sidebar-nav {
+            flex: 1; padding: 0.5rem 0; overflow-y: auto;
+            display: flex; flex-direction: column;
+        }
+        .sidebar-section {
+            font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--text-muted);
+            padding: 0.6rem 1.25rem 0.2rem;
+        }
+        .sidebar-link {
+            display: flex; align-items: center; gap: 0.7rem;
+            padding: 0.65rem 1.25rem; font-size: 0.875rem;
+            color: var(--text-main); text-decoration: none; transition: background 0.1s;
+        }
+        .sidebar-link:hover { background: var(--bg-color); }
+        .sidebar-link.active { background: #fef2f2; color: var(--primary-color); font-weight: 600; }
+        .sidebar-link svg { flex-shrink: 0; opacity: 0.55; }
+        .sidebar-link.active svg { opacity: 1; }
+    </style>
 </head>
 <body>
+    <!-- Sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="sidebar-close">✕</button>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">Services</div>
+            <a href="/deploy" class="sidebar-link" data-path="/deploy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+            <a href="/instances" class="sidebar-link" data-path="/instances">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link" data-path="/dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+        </nav>
+    </div>
 
     <nav>
-        <a href="/" class="logo">PEERCAAS</a>
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="메뉴">☰</button>
+            <a href="/" class="logo">PEERCAAS</a>
+        </div>
         
         <!-- Search Bar -->
         <div class="search-container">
@@ -34,8 +116,8 @@
                     <div class="dropdown-header">
                         <div class="dropdown-nickname" id="user-nickname">User Nickname</div>
                     </div>
+                    <a href="/instances" class="dropdown-item">Instances</a>
                     <a href="/dashboard" class="dropdown-item">Dashboard</a>
-                    <a href="/settings" class="dropdown-item">Settings</a>
                     <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
                 </div>
             </div>
@@ -45,8 +127,8 @@
     <section class="hero">
         <h1>Decentralized Cloud, Reimagined.</h1>
         <p>A high-performance P2P container orchestration platform. Deploy globally with minimal latency using our distributed worker network.</p>
-        <div id="hero-auth-buttons" style="display: flex; gap: 1rem; justify-content: center;">
-            <a href="/signup" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1.1rem;">Start Deploying</a>
+        <div style="display: flex; gap: 1rem; justify-content: center;">
+            <a id="start-deploy-btn" href="/signin?redirect=/deploy" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1.1rem;">Start Deploying</a>
             <a href="#" class="btn btn-outline" style="padding: 0.75rem 2rem; font-size: 1.1rem;">Explore Network</a>
         </div>
     </section>
@@ -75,6 +157,22 @@
     </footer>
 
     <script>
+        // ── Sidebar ───────────────────────────────────────────
+        const sidebar        = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+        document.getElementById('hamburger-btn').addEventListener('click', () => {
+            sidebar.classList.add('show'); sidebarOverlay.classList.add('show');
+        });
+        document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+        sidebarOverlay.addEventListener('click', closeSidebar);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+        function closeSidebar() { sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show'); }
+
+        document.querySelectorAll('.sidebar-link[data-path]').forEach(a => {
+            if (location.pathname === a.dataset.path) a.classList.add('active');
+        });
+
         document.addEventListener('DOMContentLoaded', async () => {
             const token = localStorage.getItem('accessToken');
             const authSection = document.getElementById('auth-section');
@@ -82,7 +180,6 @@
             const profileBtn = document.getElementById('profile-btn');
             const dropdown = document.getElementById('profile-dropdown');
             const signoutBtn = document.getElementById('signout-btn');
-            const heroAuthBtns = document.getElementById('hero-auth-buttons');
             const searchInput = document.getElementById('image-search');
             const searchBtn = document.getElementById('search-btn');
 
@@ -112,7 +209,7 @@
                         authSection.classList.add('hidden');
                         profileSection.classList.remove('hidden');
                         document.getElementById('user-nickname').textContent = user.nickname;
-                        if (heroAuthBtns) heroAuthBtns.classList.add('hidden');
+                        document.getElementById('start-deploy-btn').href = '/deploy';
                     } else {
                         localStorage.removeItem('accessToken');
                         localStorage.removeItem('nickname');

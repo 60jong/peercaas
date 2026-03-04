@@ -15,8 +15,7 @@ public class ImageViewController {
     }
 
     @GetMapping("/deploy")
-    public String deployMock(@RequestParam String image, Model model) {
-        model.addAttribute("image", image);
-        return "deploy-mock";
+    public String deployPage() {
+        return "deploy";
     }
 }

@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy | PeerCaaS</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .deploy-container {
+            padding: 3rem 5%;
+            max-width: 760px;
+            margin: 0 auto;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 800;
+            margin-bottom: 0.35rem;
+            letter-spacing: -0.025em;
+        }
+
+        .page-subtitle {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Mode tabs */
+        .mode-tabs {
+            display: flex;
+            gap: 0;
+            border: 1px solid var(--border-color);
+            border-radius: 0.6rem;
+            overflow: hidden;
+            width: fit-content;
+            margin-bottom: 1.5rem;
+            background: #f8fafc;
+        }
+
+        .mode-tab {
+            padding: 0.5rem 1.25rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            transition: all 0.15s;
+        }
+
+        .mode-tab.active {
+            background: white;
+            color: var(--text-main);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .mode-tab:first-child { border-radius: 0.5rem 0 0 0.5rem; }
+        .mode-tab:last-child  { border-radius: 0 0.5rem 0.5rem 0; }
+
+        /* Section cards */
+        .section-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .section-label {
+            font-weight: 700;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        /* Image input */
+        .image-input-row {
+            display: flex;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            background: white;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .image-input-row:focus-within {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.1);
+        }
+
+        .image-input-row input {
+            border: none;
+            outline: none;
+            padding: 0.7rem 0.75rem;
+            font-size: 0.95rem;
+            background: transparent;
+            color: var(--text-main);
+        }
+
+        .img-sep {
+            color: #cbd5e1;
+            font-size: 1.2rem;
+            font-weight: 300;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .input-repo  { width: 130px; }
+        .input-image { flex: 1; min-width: 80px; }
+        .input-tag   { width: 90px; }
+
+        .img-validate-btn {
+            padding: 0 1rem;
+            height: 100%;
+            min-height: 42px;
+            background: #f8fafc;
+            border: none;
+            border-left: 1px solid var(--border-color);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .img-validate-btn:hover  { background: var(--primary-color); color: white; }
+        .img-validate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .validation-status {
+            margin-top: 0.6rem;
+            font-size: 0.85rem;
+            min-height: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .status-valid   { color: #16a34a; }
+        .status-invalid { color: #dc2626; }
+        .status-loading { color: var(--text-muted); }
+
+        .badge-official {
+            background: #dcfce7;
+            color: #16a34a;
+            padding: 0.1rem 0.45rem;
+            border-radius: 0.3rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+
+        /* Field */
+        .field-label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+            display: block;
+        }
+
+        .field-input {
+            width: 100%;
+            padding: 0.65rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-sizing: border-box;
+            background: white;
+        }
+
+        .field-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.1);
+        }
+
+        /* Dynamic rows */
+        .row-header {
+            display: grid;
+            grid-template-columns: 1fr 1fr 32px;
+            gap: 0.5rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .row-header span {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .dynamic-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 32px;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            align-items: center;
+        }
+
+        .remove-row-btn {
+            background: none;
+            border: 1px solid var(--border-color);
+            border-radius: 0.4rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 36px;
+            font-size: 0.85rem;
+            line-height: 1;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .remove-row-btn:hover {
+            background: #fef2f2;
+            border-color: #fca5a5;
+            color: #dc2626;
+        }
+
+        .add-row-btn {
+            background: none;
+            border: 1px dashed var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            width: 100%;
+            margin-top: 0.25rem;
+            transition: all 0.2s;
+        }
+
+        .add-row-btn:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+            background: #fff5f5;
+        }
+
+        /* ── CLI mode ── */
+        .cli-card {
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .cli-topbar {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin-bottom: 1rem;
+        }
+
+        .cli-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .cli-dot:nth-child(1) { background: #ef4444; }
+        .cli-dot:nth-child(2) { background: #f59e0b; }
+        .cli-dot:nth-child(3) { background: #22c55e; }
+
+        .cli-input-wrap {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.6rem;
+        }
+
+        .cli-prompt {
+            color: #22c55e;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: nowrap;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .cli-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #e2e8f0;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            resize: none;
+            min-height: 1.6rem;
+            caret-color: #22c55e;
+        }
+
+        .cli-input::placeholder { color: #475569; }
+
+        .cli-hint {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #1e293b;
+            font-size: 0.78rem;
+            color: #475569;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            line-height: 1.7;
+        }
+
+        .cli-hint .hint-flag  { color: #7dd3fc; }
+        .cli-hint .hint-note  { color: #94a3b8; }
+
+        /* Parse preview */
+        .parse-preview {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.25rem 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .parse-preview-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+        }
+
+        .parse-row {
+            display: flex;
+            gap: 0.75rem;
+            font-size: 0.875rem;
+            margin-bottom: 0.4rem;
+            align-items: baseline;
+        }
+
+        .parse-key {
+            color: var(--text-muted);
+            font-weight: 500;
+            width: 52px;
+            flex-shrink: 0;
+        }
+
+        .parse-val {
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            font-size: 0.83rem;
+            word-break: break-all;
+        }
+
+        .parse-val.empty { color: #cbd5e1; font-family: inherit; font-size: 0.875rem; }
+
+        .parse-tag {
+            display: inline-block;
+            background: #f1f5f9;
+            border-radius: 0.3rem;
+            padding: 0.05rem 0.4rem;
+            margin: 0.1rem 0.2rem 0.1rem 0;
+            font-size: 0.8rem;
+        }
+
+        /* Footer */
+        .deploy-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+            padding-bottom: 4rem;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .modal-overlay.show { opacity: 1; pointer-events: all; }
+
+        .modal-card {
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            width: 100%;
+            max-width: 360px;
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+            transform: translateY(12px);
+            transition: transform 0.2s;
+        }
+
+        .modal-overlay.show .modal-card { transform: translateY(0); }
+
+        .modal-icon  { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .modal-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.4rem; }
+        .modal-desc  { color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.5rem; }
+        .modal-btns  { display: flex; gap: 0.75rem; }
+        .modal-btns .btn { flex: 1; }
+
+        /* ── Hamburger ── */
+        .hamburger-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.3rem 0.45rem;
+            color: var(--text-main);
+            font-size: 1.15rem;
+            line-height: 1;
+            border-radius: 0.4rem;
+            transition: background 0.15s;
+            flex-shrink: 0;
+        }
+        .hamburger-btn:hover { background: var(--bg-color); }
+
+        /* ── Sidebar overlay ── */
+        .sidebar-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.32);
+            z-index: 800;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.22s;
+        }
+        .sidebar-overlay.show { opacity: 1; pointer-events: all; }
+
+        /* ── Sidebar drawer ── */
+        .sidebar {
+            position: fixed;
+            top: 0; left: 0;
+            height: 100%; width: 260px;
+            background: white;
+            z-index: 900;
+            transform: translateX(-100%);
+            transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column;
+        }
+        .sidebar.show { transform: translateX(0); }
+
+        .sidebar-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar-logo { font-weight: 800; font-size: 1rem; color: var(--primary-color); text-decoration: none; letter-spacing: -0.02em; }
+        .sidebar-close-btn {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-muted); font-size: 1rem; padding: 0.2rem 0.35rem;
+            border-radius: 0.35rem; transition: background 0.1s;
+        }
+        .sidebar-close-btn:hover { background: var(--bg-color); }
+
+        .sidebar-nav { flex: 1; padding: 0.5rem 0; overflow-y: auto; display: flex; flex-direction: column; }
+
+        .sidebar-section {
+            font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--text-muted);
+            padding: 0.6rem 1.25rem 0.2rem;
+        }
+
+        .sidebar-link {
+            display: flex; align-items: center; gap: 0.7rem;
+            padding: 0.65rem 1.25rem;
+            font-size: 0.875rem; color: var(--text-main);
+            text-decoration: none; transition: background 0.1s;
+        }
+        .sidebar-link:hover { background: var(--bg-color); }
+        .sidebar-link.active { background: #fef2f2; color: var(--primary-color); font-weight: 600; }
+        .sidebar-link svg { flex-shrink: 0; opacity: 0.55; }
+        .sidebar-link.active svg { opacity: 1; }
+
+        .sidebar-divider { height: 1px; background: var(--border-color); margin: 0.4rem 0; }
+
+        /* ── Spinner ── */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .btn-spinner {
+            display: inline-block;
+            width: 13px;
+            height: 13px;
+            border: 2px solid rgba(255,255,255,0.35);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.65s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(0);
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.6rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: white;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.25s;
+            pointer-events: none;
+        }
+        .toast.show  { opacity: 1; }
+        .toast-ok    { background: #16a34a; }
+        .toast-err   { background: #dc2626; }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="sidebar-close">✕</button>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">Services</div>
+            <a href="/deploy" class="sidebar-link" data-path="/deploy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+            <a href="/instances" class="sidebar-link" data-path="/instances">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link" data-path="/dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+        </nav>
+    </div>
+
+    <nav>
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="메뉴">☰</button>
+            <a href="/" class="logo">PEERCAAS</a>
+        </div>
+        <div class="nav-links">
+            <div id="auth-section">
+                <a href="/signin" class="btn btn-outline">Sign In</a>
+            </div>
+            <div id="profile-section" class="profile-container hidden">
+                <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
+                <div class="dropdown-menu" id="profile-dropdown">
+                    <div class="dropdown-header">
+                        <div class="dropdown-nickname" id="user-nickname"></div>
+                    </div>
+                    <a href="/instances" class="dropdown-item">Instances</a>
+                    <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="deploy-container">
+        <h1 class="page-title">Deploy a Container</h1>
+        <p class="page-subtitle">Configure and deploy your Docker image to the PeerCaaS network.</p>
+
+        <!-- Mode toggle -->
+        <div class="mode-tabs">
+            <button class="mode-tab active" id="tab-form" type="button">Form</button>
+            <button class="mode-tab" id="tab-cli" type="button">CLI</button>
+        </div>
+
+        <!-- ══ FORM MODE ══════════════════════════════════════ -->
+        <div id="panel-form">
+            <div class="section-card">
+                <div class="section-label">Docker Image</div>
+                <div class="image-input-row">
+                    <input type="text" class="input-repo" id="input-repo" placeholder="repository">
+                    <span class="img-sep">/</span>
+                    <input type="text" class="input-image" id="input-image" placeholder="image" required>
+                    <span class="img-sep">:</span>
+                    <input type="text" class="input-tag" id="input-tag" placeholder="tag" value="latest">
+                    <button class="img-validate-btn" id="validate-btn" type="button">Verify</button>
+                </div>
+                <div class="validation-status" id="validation-status"></div>
+            </div>
+
+            <div class="section-card">
+                <div class="section-label">Container</div>
+                <label class="field-label">Container Name</label>
+                <input type="text" class="field-input" id="input-name" placeholder="e.g. my-nginx-app">
+            </div>
+
+            <div class="section-card">
+                <div class="section-label">Port Mapping</div>
+                <div class="row-header">
+                    <span>Host Port</span>
+                    <span>Container Port</span>
+                    <span></span>
+                </div>
+                <div id="port-rows">
+                    <div class="dynamic-row port-row">
+                        <input type="number" class="field-input host-port" placeholder="e.g. 8080">
+                        <input type="number" class="field-input container-port" placeholder="e.g. 80">
+                        <button class="remove-row-btn" type="button">✕</button>
+                    </div>
+                </div>
+                <button class="add-row-btn" type="button" id="add-port-btn">+ Add Port</button>
+            </div>
+
+            <div class="section-card">
+                <div class="section-label">Environment Variables</div>
+                <div class="row-header">
+                    <span>Key</span>
+                    <span>Value</span>
+                    <span></span>
+                </div>
+                <div id="env-rows"></div>
+                <button class="add-row-btn" type="button" id="add-env-btn">+ Add Variable</button>
+            </div>
+        </div>
+
+        <!-- ══ CLI MODE ═══════════════════════════════════════ -->
+        <div id="panel-cli" class="hidden">
+            <div class="cli-card">
+                <div class="cli-topbar">
+                    <div class="cli-dot"></div>
+                    <div class="cli-dot"></div>
+                    <div class="cli-dot"></div>
+                </div>
+                <div class="cli-input-wrap">
+                    <span class="cli-prompt">$ docker run</span>
+                    <textarea class="cli-input" id="cli-input" rows="1"
+                        placeholder="-d -p 8080:80 --name my-app nginx:latest"
+                        spellcheck="false"></textarea>
+                </div>
+                <div class="cli-hint">
+                    <span class="hint-flag">-d</span><span class="hint-note"> detached (default) &nbsp;·&nbsp; </span>
+                    <span class="hint-flag">--name</span><span class="hint-note"> container name &nbsp;·&nbsp; </span>
+                    <span class="hint-flag">-p</span><span class="hint-note"> host:container &nbsp;·&nbsp; </span>
+                    <span class="hint-flag">-e</span><span class="hint-note"> KEY=VALUE</span>
+                    <br>
+                    <span class="hint-note">현재 단계에서는 --name / -p / -e 옵션만 지원합니다.</span>
+                </div>
+            </div>
+
+            <!-- Live parse preview -->
+            <div class="parse-preview" id="parse-preview">
+                <div class="parse-preview-label">Parsed</div>
+                <div class="parse-row">
+                    <span class="parse-key">image</span>
+                    <span class="parse-val empty" id="pr-image">—</span>
+                </div>
+                <div class="parse-row">
+                    <span class="parse-key">name</span>
+                    <span class="parse-val empty" id="pr-name">—</span>
+                </div>
+                <div class="parse-row">
+                    <span class="parse-key">ports</span>
+                    <span class="parse-val empty" id="pr-ports">—</span>
+                </div>
+                <div class="parse-row">
+                    <span class="parse-key">env</span>
+                    <span class="parse-val empty" id="pr-env">—</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="deploy-footer">
+            <button class="btn btn-outline" type="button" onclick="history.back()">Cancel</button>
+            <button class="btn btn-primary" type="button" id="deploy-btn">Deploy</button>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Login modal -->
+    <div class="modal-overlay" id="login-modal">
+        <div class="modal-card">
+            <div class="modal-icon">🔒</div>
+            <div class="modal-title">로그인이 필요합니다</div>
+            <div class="modal-desc">배포하려면 먼저 로그인해주세요.</div>
+            <div class="modal-btns">
+                <button class="btn btn-outline" type="button" id="modal-cancel-btn">취소</button>
+                <a href="/signin?redirect=/deploy" class="btn btn-primary">로그인</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Auth ──────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('accessToken');
+            if (token) {
+                try {
+                    const res = await fetch('/api/v1/member/me', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const result = await res.json();
+                        document.getElementById('auth-section').classList.add('hidden');
+                        document.getElementById('profile-section').classList.remove('hidden');
+                        document.getElementById('user-nickname').textContent = result.data.nickname;
+                    } else {
+                        localStorage.removeItem('accessToken');
+                    }
+                } catch (e) {}
+            }
+
+            document.getElementById('profile-btn')?.addEventListener('click', e => {
+                e.stopPropagation();
+                document.getElementById('profile-dropdown').classList.toggle('show');
+            });
+            document.addEventListener('click', () =>
+                document.getElementById('profile-dropdown')?.classList.remove('show'));
+            document.getElementById('signout-btn')?.addEventListener('click', e => {
+                e.preventDefault();
+                localStorage.removeItem('accessToken');
+                location.reload();
+            });
+        });
+
+        // ── Mode tabs ─────────────────────────────────────────
+        let currentMode = 'form';
+
+        document.getElementById('tab-form').addEventListener('click', () => setMode('form'));
+        document.getElementById('tab-cli').addEventListener('click',  () => setMode('cli'));
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('tab-form').classList.toggle('active', mode === 'form');
+            document.getElementById('tab-cli').classList.toggle('active',  mode === 'cli');
+            document.getElementById('panel-form').classList.toggle('hidden', mode !== 'form');
+            document.getElementById('panel-cli').classList.toggle('hidden',  mode !== 'cli');
+        }
+
+        // ── Image validation (Form mode) ──────────────────────
+        let validatedImage = null;
+
+        document.getElementById('validate-btn').addEventListener('click', validateImage);
+
+        ['input-repo', 'input-image', 'input-tag'].forEach(id => {
+            document.getElementById(id).addEventListener('keydown', e => {
+                if (e.key === 'Enter') validateImage();
+            });
+            document.getElementById(id).addEventListener('input', () => {
+                validatedImage = null;
+                document.getElementById('validation-status').innerHTML = '';
+            });
+        });
+
+        async function validateImage() {
+            const repo  = document.getElementById('input-repo').value.trim();
+            const image = document.getElementById('input-image').value.trim();
+            const tag   = document.getElementById('input-tag').value.trim() || 'latest';
+            const statusEl = document.getElementById('validation-status');
+            const btn = document.getElementById('validate-btn');
+
+            if (!image) {
+                statusEl.innerHTML = '<span class="status-invalid">이미지 이름을 입력해주세요.</span>';
+                return;
+            }
+
+            statusEl.innerHTML = '<span class="status-loading">확인 중...</span>';
+            btn.disabled = true;
+            validatedImage = null;
+
+            try {
+                const params = new URLSearchParams({ image, tag });
+                if (repo) params.append('repo', repo);
+                const res = await fetch(`/api/v1/images/validate?${params}`);
+                const data = (await res.json()).data;
+
+                if (data.exists) {
+                    const badge = data.official ? ' <span class="badge-official">Official</span>' : '';
+                    statusEl.innerHTML = `<span class="status-valid">✓ ${data.fullImage}${badge}</span>`;
+                    validatedImage = data.fullImage;
+                } else {
+                    statusEl.innerHTML = '<span class="status-invalid">✗ Docker Hub에서 이미지를 찾을 수 없습니다.</span>';
+                }
+            } catch (e) {
+                statusEl.innerHTML = '<span class="status-invalid">검증 중 오류가 발생했습니다.</span>';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // ── Dynamic rows (Form mode) ──────────────────────────
+        document.getElementById('add-port-btn').addEventListener('click', () => {
+            const row = document.createElement('div');
+            row.className = 'dynamic-row port-row';
+            row.innerHTML = `
+                <input type="number" class="field-input host-port" placeholder="e.g. 8080">
+                <input type="number" class="field-input container-port" placeholder="e.g. 80">
+                <button class="remove-row-btn" type="button">✕</button>`;
+            document.getElementById('port-rows').appendChild(row);
+            row.querySelector('.remove-row-btn').addEventListener('click', () => row.remove());
+        });
+
+        document.getElementById('add-env-btn').addEventListener('click', () => {
+            const row = document.createElement('div');
+            row.className = 'dynamic-row env-row';
+            row.innerHTML = `
+                <input type="text" class="field-input env-key" placeholder="KEY">
+                <input type="text" class="field-input env-value" placeholder="VALUE">
+                <button class="remove-row-btn" type="button">✕</button>`;
+            document.getElementById('env-rows').appendChild(row);
+            row.querySelector('.remove-row-btn').addEventListener('click', () => row.remove());
+        });
+
+        document.querySelectorAll('.port-row .remove-row-btn').forEach(btn =>
+            btn.addEventListener('click', () => btn.closest('.dynamic-row').remove()));
+
+        // ── CLI parser ────────────────────────────────────────
+        function tokenize(str) {
+            const tokens = [];
+            let cur = '', inQuote = false, qChar = '';
+            for (const ch of str) {
+                if (inQuote) {
+                    if (ch === qChar) inQuote = false;
+                    else cur += ch;
+                } else if (ch === '"' || ch === "'") {
+                    inQuote = true; qChar = ch;
+                } else if (ch === ' ' || ch === '\t') {
+                    if (cur) { tokens.push(cur); cur = ''; }
+                } else {
+                    cur += ch;
+                }
+            }
+            if (cur) tokens.push(cur);
+            return tokens;
+        }
+
+        function parseDockerRun(raw) {
+            // strip "docker run" / "docker" / "run" prefix if user typed it
+            let input = raw.trim();
+            if (input.startsWith('docker run ')) input = input.slice(11);
+            else if (input.startsWith('docker '))   input = input.slice(7);
+
+            const tokens = tokenize(input);
+            const result = { image: null, name: null, ports: [], env: {} };
+
+            for (let i = 0; i < tokens.length; i++) {
+                const t = tokens[i];
+
+                if (t === '-d' || t === '--detach') {
+                    // default — no-op
+                } else if (t === '--name' && tokens[i+1]) {
+                    result.name = tokens[++i];
+                } else if (t.startsWith('--name=')) {
+                    result.name = t.slice(7);
+                } else if ((t === '-p' || t === '--publish') && tokens[i+1]) {
+                    pushPort(result.ports, tokens[++i]);
+                } else if (t.startsWith('-p=') || t.startsWith('--publish=')) {
+                    pushPort(result.ports, t.split('=').slice(1).join('='));
+                } else if ((t === '-e' || t === '--env') && tokens[i+1]) {
+                    pushEnv(result.env, tokens[++i]);
+                } else if (t.startsWith('-e=') || t.startsWith('--env=')) {
+                    pushEnv(result.env, t.split('=').slice(1).join('='));
+                } else if (!t.startsWith('-')) {
+                    result.image = t;  // last positional arg = image
+                }
+                // unknown flags silently skipped
+            }
+            return result;
+        }
+
+        function pushPort(arr, spec) {
+            const parts = spec.split(':');
+            if (parts.length >= 2) {
+                const h = parseInt(parts[parts.length - 2]);
+                const c = parseInt(parts[parts.length - 1]);
+                if (h && c) arr.push({ hostPort: h, containerPort: c, protocol: 'tcp' });
+            }
+        }
+
+        function pushEnv(obj, spec) {
+            const eq = spec.indexOf('=');
+            if (eq > 0) obj[spec.slice(0, eq)] = spec.slice(eq + 1);
+        }
+
+        // ── Live preview ──────────────────────────────────────
+        const cliInput = document.getElementById('cli-input');
+
+        cliInput.addEventListener('input', () => {
+            // auto-resize textarea
+            cliInput.style.height = 'auto';
+            cliInput.style.height = cliInput.scrollHeight + 'px';
+            updatePreview();
+        });
+
+        function updatePreview() {
+            const parsed = parseDockerRun(cliInput.value);
+
+            setText('pr-image', parsed.image);
+            setText('pr-name',  parsed.name);
+
+            const portEl = document.getElementById('pr-ports');
+            if (parsed.ports.length) {
+                portEl.className = 'parse-val';
+                portEl.innerHTML = parsed.ports
+                    .map(p => `<span class="parse-tag">${p.hostPort} → ${p.containerPort}</span>`)
+                    .join('');
+            } else {
+                portEl.className = 'parse-val empty';
+                portEl.textContent = '—';
+            }
+
+            const envEl = document.getElementById('pr-env');
+            const envEntries = Object.entries(parsed.env);
+            if (envEntries.length) {
+                envEl.className = 'parse-val';
+                envEl.innerHTML = envEntries
+                    .map(([k, v]) => `<span class="parse-tag">${k}=${v}</span>`)
+                    .join('');
+            } else {
+                envEl.className = 'parse-val empty';
+                envEl.textContent = '—';
+            }
+        }
+
+        function setText(id, val) {
+            const el = document.getElementById(id);
+            if (val) { el.className = 'parse-val'; el.textContent = val; }
+            else     { el.className = 'parse-val empty'; el.textContent = '—'; }
+        }
+
+        // ── Build request body ────────────────────────────────
+        function buildBodyFromForm() {
+            const repo  = document.getElementById('input-repo').value.trim();
+            const image = document.getElementById('input-image').value.trim();
+            const tag   = document.getElementById('input-tag').value.trim() || 'latest';
+
+            const ports = [];
+            document.querySelectorAll('.port-row').forEach(row => {
+                const h = parseInt(row.querySelector('.host-port').value);
+                const c = parseInt(row.querySelector('.container-port').value);
+                if (h && c) ports.push({ hostPort: h, containerPort: c, protocol: 'tcp' });
+            });
+
+            const env = {};
+            document.querySelectorAll('.env-row').forEach(row => {
+                const k = row.querySelector('.env-key').value.trim();
+                const v = row.querySelector('.env-value').value.trim();
+                if (k) env[k] = v;
+            });
+
+            return {
+                name:  document.getElementById('input-name').value.trim() || null,
+                image: repo ? `${repo}/${image}:${tag}` : `${image}:${tag}`,
+                ports,
+                env
+            };
+        }
+
+        function buildBodyFromCli() {
+            const parsed = parseDockerRun(cliInput.value);
+            return {
+                name:  parsed.name  || null,
+                image: parsed.image || null,
+                ports: parsed.ports,
+                env:   parsed.env
+            };
+        }
+
+        // ── Toast ─────────────────────────────────────────────
+        function showToast(msg, type) {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.className = `toast toast-${type} show`;
+            clearTimeout(el._timer);
+            el._timer = setTimeout(() => el.classList.remove('show'), 2800);
+        }
+
+        // ── Deploy ────────────────────────────────────────────
+        document.getElementById('deploy-btn').addEventListener('click', handleDeploy);
+
+        async function handleDeploy() {
+            const token = localStorage.getItem('accessToken');
+            if (!token) {
+                document.getElementById('login-modal').classList.add('show');
+                return;
+            }
+
+            let body;
+            if (currentMode === 'cli') {
+                body = buildBodyFromCli();
+                if (!body.image) {
+                    showToast('이미지 이름을 입력해주세요.  예: -d -p 8080:80 nginx:latest', 'err');
+                    return;
+                }
+            } else {
+                const image = document.getElementById('input-image').value.trim();
+                if (!image) { showToast('이미지 이름을 입력해주세요.', 'err'); return; }
+                if (!validatedImage && !confirm('이미지를 검증하지 않았습니다. 계속 배포하시겠습니까?')) return;
+                body = buildBodyFromForm();
+            }
+
+            const deployBtn = document.getElementById('deploy-btn');
+            deployBtn.disabled = true;
+            deployBtn.innerHTML = '<span class="btn-spinner"></span>Deploying...';
+
+            let succeeded = false;
+            try {
+                const res = await fetch('/api/v1/deployment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (res.status === 202) {
+                    succeeded = true;
+                    deployBtn.innerHTML = '✓ Accepted';
+                    deployBtn.style.cssText = 'background:#16a34a;border-color:#16a34a;cursor:default';
+                } else if (res.status === 401) {
+                    localStorage.removeItem('accessToken');
+                    document.getElementById('login-modal').classList.add('show');
+                } else {
+                    const err = await res.json().catch(() => null);
+                    showToast(err?.message || '요청 실패. 다시 시도해주세요.', 'err');
+                }
+            } catch (e) {
+                showToast('네트워크 오류가 발생했습니다.', 'err');
+            } finally {
+                if (!succeeded) {
+                    deployBtn.disabled = false;
+                    deployBtn.textContent = 'Deploy';
+                }
+            }
+        }
+
+        // ── Modal ─────────────────────────────────────────────
+        document.getElementById('modal-cancel-btn').addEventListener('click', () =>
+            document.getElementById('login-modal').classList.remove('show'));
+
+        document.getElementById('login-modal').addEventListener('click', function (e) {
+            if (e.target === this) this.classList.remove('show');
+        });
+
+        // ── Sidebar ───────────────────────────────────────────
+        const sidebar        = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+        document.getElementById('hamburger-btn').addEventListener('click', openSidebar);
+        document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+        sidebarOverlay.addEventListener('click', closeSidebar);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+
+        function openSidebar()  { sidebar.classList.add('show'); sidebarOverlay.classList.add('show'); }
+        function closeSidebar() { sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show'); }
+
+        // 현재 경로에 해당하는 링크 active 표시
+        document.querySelectorAll('.sidebar-link[data-path]').forEach(a => {
+            if (location.pathname === a.dataset.path) a.classList.add('active');
+        });
+    </script>
+</body>
+</html>

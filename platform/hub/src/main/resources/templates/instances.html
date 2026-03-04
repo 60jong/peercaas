@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instances | PeerCaaS</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .page-wrap {
+            padding: 2.5rem 5%;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* ── Page header ── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+        }
+
+        .page-title {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin: 0;
+        }
+
+        .page-title-count {
+            font-size: 1rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-left: 0.35rem;
+        }
+
+        /* ── Panel ── */
+        .panel {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+
+        /* ── Toolbar ── */
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* filter search */
+        .filter-search {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 0.4rem 0.75rem;
+            background: var(--bg-color);
+            transition: all 0.2s;
+            flex: 1;
+            max-width: 320px;
+        }
+        .filter-search:focus-within {
+            border-color: var(--primary-color);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(185,28,28,0.08);
+        }
+        .filter-search svg { opacity: 0.4; flex-shrink: 0; }
+        .filter-search input {
+            border: none; outline: none; background: transparent;
+            font-size: 0.85rem; width: 100%; color: var(--text-main);
+        }
+
+        .filter-select {
+            padding: 0.4rem 0.6rem;
+            font-size: 0.85rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: var(--bg-color);
+            color: var(--text-main);
+            outline: none;
+            cursor: pointer;
+        }
+        .filter-select:focus { border-color: var(--primary-color); }
+
+        .icon-btn {
+            width: 32px; height: 32px;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: white;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem;
+            transition: all 0.15s;
+        }
+        .icon-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
+
+        /* ── Table ── */
+        .table-wrap { overflow-x: auto; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            color: var(--text-main);
+        }
+
+        thead th {
+            padding: 0.6rem 1rem;
+            text-align: left;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            background: var(--bg-color);
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+        th.col-check { width: 40px; }
+
+        tbody td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+
+        tbody tr.data-row { cursor: pointer; transition: background 0.1s; }
+        tbody tr.data-row:hover td { background: #fef2f2; }
+        tbody tr.data-row.selected td { background: #fff5f5; }
+
+        .mono {
+            font-family: 'SFMono-Regular', 'Consolas', monospace;
+            font-size: 0.8rem;
+        }
+
+        /* ── Status badge (EC2 dot style) ── */
+        .status-cell {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.82rem;
+            font-weight: 500;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .s-running   .status-dot { background: #16a34a; }
+        .s-running   { color: #15803d; }
+
+        .s-pending   .status-dot,
+        .s-requested .status-dot { background: #d97706; animation: blink 1.1s ease-in-out infinite; }
+        .s-pending, .s-requested { color: #92400e; }
+
+        .s-failed    .status-dot { background: var(--primary-color); }
+        .s-failed    { color: var(--primary-color); }
+
+        .s-stopped   .status-dot { background: #94a3b8; }
+        .s-stopped   { color: var(--text-muted); }
+
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+        /* deploy progress bar in cell */
+        .deploy-bar {
+            display: inline-block; vertical-align: middle;
+            width: 60px; height: 3px;
+            background: #e2e8f0; border-radius: 2px;
+            overflow: hidden; margin-left: 8px;
+        }
+        .deploy-bar-inner {
+            height: 100%; background: #d97706; border-radius: 2px;
+            animation: slide 1.4s ease-in-out infinite;
+        }
+        @keyframes slide {
+            0%   { transform: translateX(-100%) scaleX(.4); }
+            50%  { transform: translateX(0)     scaleX(.6); }
+            100% { transform: translateX(100%)  scaleX(.4); }
+        }
+
+        /* ── Empty / loading ── */
+        .empty-row td {
+            text-align: center;
+            padding: 4rem 1rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin-icon {
+            display: inline-block;
+            width: 20px; height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+        }
+
+        /* ── Detail panel ── */
+        .detail-panel {
+            margin-top: 1rem;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            display: none;
+        }
+        .detail-panel.show { display: block; }
+
+        .detail-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-color);
+        }
+        .detail-title { font-size: 0.85rem; font-weight: 700; color: var(--text-main); }
+
+        .detail-close {
+            background: none; border: none;
+            font-size: 1.1rem; cursor: pointer;
+            color: var(--text-muted); line-height: 1;
+            padding: 0.15rem 0.3rem; border-radius: 0.25rem;
+        }
+        .detail-close:hover { background: var(--border-color); }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem 1.5rem;
+            padding: 1.25rem;
+        }
+
+        .detail-label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+        .detail-value {
+            font-size: 0.83rem;
+            color: var(--text-main);
+            word-break: break-all;
+            font-family: 'SFMono-Regular', 'Consolas', monospace;
+        }
+        .detail-value.plain { font-family: inherit; }
+
+        /* ── Toast ── */
+        .toast {
+            position: fixed; bottom: 2rem; left: 50%;
+            transform: translateX(-50%);
+            padding: 0.7rem 1.4rem;
+            border-radius: 0.6rem;
+            font-size: 0.875rem; font-weight: 600;
+            color: white; z-index: 3000;
+            opacity: 0; transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        .toast.show  { opacity: 1; }
+        .toast-ok    { background: #16a34a; }
+        .toast-err   { background: var(--primary-color); }
+
+        /* ── Kebab menu ── */
+        th.col-action, td.col-action { width: 48px; text-align: center; }
+
+        .kebab-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            width: 28px; height: 28px;
+            border-radius: 0.4rem;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: all 0.15s;
+            letter-spacing: 0.05em;
+        }
+        .kebab-btn:hover { background: var(--border-color); color: var(--text-main); }
+
+        .kebab-menu {
+            position: fixed;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            min-width: 140px;
+            z-index: 500;
+            overflow: hidden;
+            opacity: 0;
+            transform: scale(0.95);
+            transform-origin: top right;
+            transition: opacity 0.1s, transform 0.1s;
+            pointer-events: none;
+        }
+        .kebab-menu.show {
+            opacity: 1;
+            transform: scale(1);
+            pointer-events: all;
+        }
+
+        .kebab-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.6rem 0.9rem;
+            font-size: 0.85rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-main);
+            text-align: left;
+            transition: background 0.1s;
+        }
+        .kebab-item:hover { background: var(--bg-color); }
+        .kebab-item.danger { color: var(--primary-color); }
+        .kebab-item.danger:hover { background: #fef2f2; }
+
+        /* ── Hamburger ── */
+        .hamburger-btn {
+            background: none; border: none; cursor: pointer;
+            padding: 0.3rem 0.45rem; color: var(--text-main);
+            font-size: 1.15rem; line-height: 1;
+            border-radius: 0.4rem; transition: background 0.15s; flex-shrink: 0;
+        }
+        .hamburger-btn:hover { background: var(--bg-color); }
+
+        .sidebar-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.32);
+            z-index: 800; opacity: 0; pointer-events: none; transition: opacity 0.22s;
+        }
+        .sidebar-overlay.show { opacity: 1; pointer-events: all; }
+
+        .sidebar {
+            position: fixed; top: 0; left: 0; height: 100%; width: 260px;
+            background: white; z-index: 900;
+            transform: translateX(-100%);
+            transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column;
+        }
+        .sidebar.show { transform: translateX(0); }
+
+        .sidebar-head {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color);
+        }
+        .sidebar-logo { font-weight: 800; font-size: 1rem; color: var(--primary-color); text-decoration: none; letter-spacing: -0.02em; }
+        .sidebar-close-btn {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-muted); font-size: 1rem; padding: 0.2rem 0.35rem;
+            border-radius: 0.35rem; transition: background 0.1s;
+        }
+        .sidebar-close-btn:hover { background: var(--bg-color); }
+
+        .sidebar-nav { flex: 1; padding: 0.5rem 0; overflow-y: auto; display: flex; flex-direction: column; }
+
+        .sidebar-section {
+            font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.08em; color: var(--text-muted);
+            padding: 0.6rem 1.25rem 0.2rem;
+        }
+
+        .sidebar-link {
+            display: flex; align-items: center; gap: 0.7rem;
+            padding: 0.65rem 1.25rem; font-size: 0.875rem;
+            color: var(--text-main); text-decoration: none; transition: background 0.1s;
+        }
+        .sidebar-link:hover { background: var(--bg-color); }
+        .sidebar-link.active { background: #fef2f2; color: var(--primary-color); font-weight: 600; }
+        .sidebar-link svg { flex-shrink: 0; opacity: 0.55; }
+        .sidebar-link.active svg { opacity: 1; }
+
+        /* ── Pagination ── */
+        .table-footer {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0.6rem 1.25rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* ── Metrics section ── */
+        .metrics-section {
+            border-top: 1px solid var(--border-color);
+            padding: 1rem 1.25rem 1.25rem;
+        }
+
+        .metrics-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.9rem;
+        }
+
+        .metrics-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .range-tabs {
+            display: flex;
+            gap: 0.2rem;
+        }
+
+        .range-btn {
+            padding: 0.22rem 0.55rem;
+            font-size: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            background: white;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.15s;
+        }
+        .range-btn:hover { border-color: var(--primary-color); color: var(--primary-color); }
+        .range-btn.active { background: var(--primary-color); border-color: var(--primary-color); color: white; }
+
+        .metrics-charts {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .chart-card {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 0.65rem 0.9rem 0.75rem;
+        }
+
+        .chart-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+        }
+
+        .metrics-status {
+            text-align: center;
+            padding: 1.5rem 0;
+            font-size: 0.83rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="sidebar-close">✕</button>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">Services</div>
+            <a href="/deploy" class="sidebar-link" data-path="/deploy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+            <a href="/instances" class="sidebar-link" data-path="/instances">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link" data-path="/dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+        </nav>
+    </div>
+
+    <nav>
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="메뉴">☰</button>
+            <a href="/" class="logo">PEERCAAS</a>
+        </div>
+        <div class="nav-links">
+            <div id="auth-section">
+                <a href="/signin?redirect=/instances" class="btn btn-outline">Sign In</a>
+            </div>
+            <div id="profile-section" class="profile-container hidden">
+                <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
+                <div class="dropdown-menu" id="profile-dropdown">
+                    <div class="dropdown-header">
+                        <div class="dropdown-nickname" id="user-nickname"></div>
+                    </div>
+                    <a href="/instances" class="dropdown-item">Instances</a>
+                    <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="page-wrap">
+
+        <div class="page-header">
+            <h1 class="page-title">
+                Instances
+                <span class="page-title-count" id="instance-count"></span>
+            </h1>
+            <a href="/deploy" class="btn btn-primary">+ Launch Instance</a>
+        </div>
+
+        <div class="panel">
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <div class="filter-search">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                        </svg>
+                        <input type="text" id="filter-input" placeholder="Filter by name, image, ID…">
+                    </div>
+                    <select class="filter-select" id="filter-status">
+                        <option value="">All states</option>
+                        <option value="RUNNING">Running</option>
+                        <option value="PENDING">Pending</option>
+                        <option value="FAILED">Failed</option>
+                        <option value="STOPPED">Stopped</option>
+                    </select>
+                </div>
+                <div class="toolbar-right">
+                    <button class="icon-btn" id="refresh-btn" title="Refresh">↻</button>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="col-check"><input type="checkbox" id="check-all"></th>
+                            <th>Name</th>
+                            <th>Instance ID</th>
+                            <th>State</th>
+                            <th>Image</th>
+                            <th>Ports</th>
+                            <th>Worker</th>
+                            <th>Launched</th>
+                            <th class="col-action"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <tr class="empty-row">
+                            <td colspan="8"><span class="spin-icon"></span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-footer" id="table-footer" style="display:none">
+                <span id="footer-count"></span>
+            </div>
+        </div>
+
+        <!-- Detail panel -->
+        <div class="detail-panel" id="detail-panel">
+            <div class="detail-header">
+                <span class="detail-title" id="detail-title">Instance details</span>
+                <button class="detail-close" id="detail-close">✕</button>
+            </div>
+            <div class="detail-grid" id="detail-grid"></div>
+
+            <!-- Metrics (RUNNING 컨테이너만 표시) -->
+            <div class="metrics-section" id="metrics-section" style="display:none">
+                <div class="metrics-header">
+                    <span class="metrics-title">Metrics</span>
+                    <div class="range-tabs" id="range-tabs">
+                        <button class="range-btn active" data-range="15m">15m</button>
+                        <button class="range-btn" data-range="1h">1h</button>
+                        <button class="range-btn" data-range="6h">6h</button>
+                        <button class="range-btn" data-range="24h">24h</button>
+                    </div>
+                </div>
+                <div id="metrics-status" class="metrics-status" style="display:none"></div>
+                <div class="metrics-charts" id="metrics-charts" style="display:none">
+                    <div class="chart-card">
+                        <div class="chart-label">CPU (%)</div>
+                        <canvas id="chart-cpu" height="90"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-label">Memory (MB)</div>
+                        <canvas id="chart-mem" height="90"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-label">Network (bytes)</div>
+                        <canvas id="chart-net" height="90"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Kebab dropdown (shared, repositioned per click) -->
+    <div class="kebab-menu" id="kebab-menu">
+        <button class="kebab-item danger" id="kebab-delete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+            </svg>
+            삭제
+        </button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+        const pendingTraceId = new URLSearchParams(location.search).get('traceId');
+        let allInstances = [];
+        let selectedTraceId = null;
+        let eventSource = null;
+
+        // ── Auth ──────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('accessToken');
+            if (!token) { location.href = '/signin?redirect=/instances'; return; }
+
+            try {
+                const res = await fetch('/api/v1/member/me', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (!res.ok) { localStorage.removeItem('accessToken'); location.href = '/signin?redirect=/instances'; return; }
+                const r = await res.json();
+                document.getElementById('auth-section').classList.add('hidden');
+                document.getElementById('profile-section').classList.remove('hidden');
+                document.getElementById('user-nickname').textContent = r.data.nickname;
+            } catch (e) {}
+
+            document.getElementById('profile-btn')?.addEventListener('click', e => {
+                e.stopPropagation();
+                document.getElementById('profile-dropdown').classList.toggle('show');
+            });
+            document.addEventListener('click', () => document.getElementById('profile-dropdown')?.classList.remove('show'));
+            document.getElementById('signout-btn')?.addEventListener('click', e => {
+                e.preventDefault(); localStorage.removeItem('accessToken'); location.href = '/';
+            });
+
+            await loadInstances();
+        });
+
+        // ── Toast ─────────────────────────────────────────────
+        function showToast(msg, type) {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.className = `toast toast-${type} show`;
+            clearTimeout(el._t);
+            el._t = setTimeout(() => el.classList.remove('show'), 3000);
+        }
+
+        // ── Load ──────────────────────────────────────────────
+        document.getElementById('refresh-btn').addEventListener('click', loadInstances);
+
+        async function loadInstances() {
+            const btn = document.getElementById('refresh-btn');
+            btn.innerHTML = '<span class="spin-icon" style="width:14px;height:14px;border-width:2px"></span>';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/v1/deployment', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
+                });
+                allInstances = (await res.json()).data || [];
+                renderTable(allInstances);
+                startWatchIfNeeded();
+            } catch (e) {
+                setEmptyRow('목록을 불러오는 데 실패했습니다.');
+            } finally {
+                btn.innerHTML = '↻'; btn.disabled = false;
+            }
+        }
+
+        // ── Render ────────────────────────────────────────────
+        function renderTable(items) {
+            document.getElementById('instance-count').textContent = `(${items.length})`;
+            const tbody = document.getElementById('table-body');
+            const footer = document.getElementById('table-footer');
+
+            if (!items.length) {
+                setEmptyRow('배포된 인스턴스가 없습니다.');
+                footer.style.display = 'none';
+                return;
+            }
+
+            tbody.innerHTML = items.map(rowHtml).join('');
+
+            tbody.querySelectorAll('tr.data-row').forEach(tr => {
+                tr.addEventListener('click', e => {
+                    if (e.target.type === 'checkbox') return;
+                    selectRow(tr.dataset.traceId);
+                });
+                tr.querySelector('.row-check')?.addEventListener('change', e =>
+                    tr.classList.toggle('selected', e.target.checked));
+            });
+
+            footer.style.display = 'flex';
+            document.getElementById('footer-count').textContent = `${items.length} instance${items.length > 1 ? 's' : ''}`;
+
+            if (pendingTraceId) selectRow(pendingTraceId);
+        }
+
+        function rowHtml(item) {
+            const sc = 's-' + item.status.toLowerCase();
+            const bar = (item.status === 'PENDING' || item.status === 'REQUESTED')
+                ? `<span class="deploy-bar"><span class="deploy-bar-inner"></span></span>` : '';
+            const ports = item.portBindings
+                ? Object.entries(item.portBindings).map(([c, h]) => `${h}:${c}`).join(', ')
+                : '—';
+            const instId = item.containerId
+                ? item.containerId.slice(0, 12)
+                : item.traceId.slice(0, 12) + '…';
+
+            return `<tr class="data-row" id="row-${item.traceId}" data-trace-id="${item.traceId}">
+                <td><input type="checkbox" class="row-check"></td>
+                <td>${item.containerName || '—'}</td>
+                <td class="mono" title="${item.containerId || item.traceId}">${instId}</td>
+                <td>
+                    <span class="status-cell ${sc}" id="status-${item.traceId}">
+                        <span class="status-dot"></span>${statusLabel(item.status)}
+                    </span>${bar}
+                </td>
+                <td class="mono">${item.image}</td>
+                <td class="mono">${ports}</td>
+                <td class="mono">${item.workerId || '—'}</td>
+                <td>${item.createdAt || '—'}</td>
+                <td class="col-action">
+                    <button class="kebab-btn" data-trace-id="${item.traceId}" title="Actions">⋮</button>
+                </td>
+            </tr>`;
+        }
+
+        function setEmptyRow(msg) {
+            document.getElementById('instance-count').textContent = '(0)';
+            document.getElementById('table-body').innerHTML =
+                `<tr class="empty-row"><td colspan="8">${msg}</td></tr>`;
+        }
+
+        function statusLabel(s) {
+            return { PENDING:'Pending', REQUESTED:'Pending', RUNNING:'Running', FAILED:'Failed', STOPPED:'Stopped' }[s] || s;
+        }
+
+        // ── Select row → detail ───────────────────────────────
+        function selectRow(traceId) {
+            document.querySelectorAll('tr.data-row').forEach(r => r.classList.remove('selected'));
+            const row = document.getElementById('row-' + traceId);
+            if (!row) return;
+            row.classList.add('selected');
+            selectedTraceId = traceId;
+
+            const item = allInstances.find(i => i.traceId === traceId);
+            if (!item) return;
+
+            document.getElementById('detail-title').textContent = item.containerName || item.image;
+
+            const fields = [
+                ['Instance ID',    item.containerId || '—'],
+                ['Trace ID',       item.traceId],
+                ['State',          statusLabel(item.status), true],
+                ['Image',          item.image],
+                ['Container name', item.containerName || '—', true],
+                ['Ports',          item.portBindings ? Object.entries(item.portBindings).map(([c,h])=>`${h}→${c}`).join('  ') : '—'],
+                ['Worker',         item.workerId || '—'],
+                ['Launched',       item.createdAt || '—', true],
+            ];
+
+            document.getElementById('detail-grid').innerHTML = fields.map(([k, v, plain]) => `
+                <div>
+                    <div class="detail-label">${k}</div>
+                    <div class="detail-value${plain ? ' plain' : ''}">${v}</div>
+                </div>`).join('');
+
+            const panel = document.getElementById('detail-panel');
+            panel.classList.add('show');
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            // 메트릭 섹션: RUNNING + containerId 있을 때만
+            if (item.status === 'RUNNING' && item.containerId) {
+                loadMetrics(item.containerId, currentMetricsRange);
+            } else {
+                document.getElementById('metrics-section').style.display = 'none';
+                clearCharts();
+            }
+        }
+
+        document.getElementById('detail-close').addEventListener('click', () => {
+            document.getElementById('detail-panel').classList.remove('show');
+            document.querySelectorAll('tr.data-row').forEach(r => r.classList.remove('selected'));
+            selectedTraceId = null;
+            clearCharts();
+        });
+
+        // ── Filters ───────────────────────────────────────────
+        document.getElementById('filter-input').addEventListener('input', applyFilters);
+        document.getElementById('filter-status').addEventListener('change', applyFilters);
+
+        function applyFilters() {
+            const text   = document.getElementById('filter-input').value.toLowerCase();
+            const status = document.getElementById('filter-status').value;
+            renderTable(allInstances.filter(i =>
+                (!text   || [i.image, i.containerName, i.traceId, i.containerId].some(v => (v||'').toLowerCase().includes(text))) &&
+                (!status || i.status === status || (status === 'PENDING' && i.status === 'REQUESTED'))
+            ));
+        }
+
+        document.getElementById('check-all').addEventListener('change', function () {
+            document.querySelectorAll('.row-check').forEach(c => {
+                c.checked = this.checked;
+                c.closest('tr').classList.toggle('selected', this.checked);
+            });
+        });
+
+        // ── SSE ───────────────────────────────────────────────
+        function startWatchIfNeeded() {
+            if (!pendingTraceId) return;
+            const item = allInstances.find(i => i.traceId === pendingTraceId);
+            if (!item || item.status === 'RUNNING' || item.status === 'FAILED') return;
+            subscribeSSE(pendingTraceId);
+        }
+
+        function subscribeSSE(traceId) {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource(`/api/v1/notification/subscribe/${traceId}`);
+
+            eventSource.addEventListener('deployment-status', e => {
+                const data = JSON.parse(e.data);
+                applyStatusUpdate(traceId, data.status, data.containerId);
+                eventSource.close(); eventSource = null;
+            });
+
+            eventSource.onerror = () => {
+                eventSource?.close(); eventSource = null;
+                pollFallback(traceId);
+            };
+
+            setTimeout(() => {
+                if (eventSource) { eventSource.close(); eventSource = null; pollFallback(traceId); }
+            }, 180_000);
+        }
+
+        function applyStatusUpdate(traceId, rawStatus, containerId) {
+            const status = rawStatus === 'SUCCESS' ? 'RUNNING' : rawStatus;
+            const item = allInstances.find(i => i.traceId === traceId);
+            if (item) { item.status = status; if (containerId) item.containerId = containerId; }
+
+            const cell = document.getElementById('status-' + traceId);
+            const row  = document.getElementById('row-'    + traceId);
+            if (cell) {
+                cell.className = `status-cell s-${status.toLowerCase()}`;
+                cell.innerHTML = `<span class="status-dot"></span>${statusLabel(status)}`;
+                row?.querySelector('.deploy-bar')?.remove();
+            }
+
+            if (selectedTraceId === traceId) selectRow(traceId);
+
+            if (status === 'RUNNING') showToast('컨테이너 배포가 완료되었습니다!', 'ok');
+            else if (status === 'FAILED') showToast('배포가 실패했습니다.', 'err');
+        }
+
+        async function pollFallback(traceId, attempts = 0) {
+            if (attempts > 10) return;
+            try {
+                const res = await fetch(`/api/v1/deployment/${traceId}`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
+                });
+                const d = (await res.json()).data;
+                if (d.status === 'RUNNING')      applyStatusUpdate(traceId, 'RUNNING', d.containerId);
+                else if (d.status === 'FAILED')  applyStatusUpdate(traceId, 'FAILED', null);
+                else setTimeout(() => pollFallback(traceId, attempts + 1), 3000);
+            } catch (e) { setTimeout(() => pollFallback(traceId, attempts + 1), 5000); }
+        }
+
+        // ── Kebab menu ────────────────────────────────────────
+        let kebabTraceId = null;
+        const kebabMenu = document.getElementById('kebab-menu');
+
+        // 버튼 클릭 → 메뉴 위치 계산 후 열기
+        document.getElementById('table-body').addEventListener('click', e => {
+            const btn = e.target.closest('.kebab-btn');
+            if (!btn) return;
+            e.stopPropagation();
+
+            const traceId = btn.dataset.traceId;
+            if (kebabTraceId === traceId && kebabMenu.classList.contains('show')) {
+                closeKebab(); return;
+            }
+
+            kebabTraceId = traceId;
+
+            const rect = btn.getBoundingClientRect();
+            kebabMenu.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
+            kebabMenu.style.left = (rect.right  + window.scrollX - kebabMenu.offsetWidth || rect.left + window.scrollX) + 'px';
+            kebabMenu.classList.add('show');
+
+            // 화면 밖으로 나가면 왼쪽으로
+            requestAnimationFrame(() => {
+                const mr = kebabMenu.getBoundingClientRect();
+                if (mr.right > window.innerWidth - 8) {
+                    kebabMenu.style.left = (rect.right + window.scrollX - mr.width) + 'px';
+                }
+            });
+        });
+
+        function closeKebab() {
+            kebabMenu.classList.remove('show');
+            kebabTraceId = null;
+        }
+
+        document.addEventListener('click', e => {
+            if (!kebabMenu.contains(e.target)) closeKebab();
+        });
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeKebab();
+        });
+
+        // 삭제 클릭
+        document.getElementById('kebab-delete').addEventListener('click', async () => {
+            const traceId = kebabTraceId;
+            closeKebab();
+
+            const item = allInstances.find(i => i.traceId === traceId);
+            const name = item?.containerName || item?.image || traceId;
+            if (!confirm(`"${name}" 인스턴스를 삭제하시겠습니까?`)) return;
+
+            try {
+                const res = await fetch(`/api/v1/deployment/${traceId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
+                });
+
+                if (res.ok) {
+                    // 테이블에서 행 제거
+                    document.getElementById('row-' + traceId)?.remove();
+                    allInstances = allInstances.filter(i => i.traceId !== traceId);
+                    document.getElementById('instance-count').textContent = `(${allInstances.length})`;
+                    document.getElementById('footer-count').textContent =
+                        `${allInstances.length} instance${allInstances.length !== 1 ? 's' : ''}`;
+
+                    // 디테일 패널이 해당 항목이면 닫기
+                    if (selectedTraceId === traceId) {
+                        document.getElementById('detail-panel').classList.remove('show');
+                        selectedTraceId = null;
+                        clearCharts();
+                    }
+
+                    if (!allInstances.length) setEmptyRow('배포된 인스턴스가 없습니다.');
+                    showToast('인스턴스가 삭제되었습니다.', 'ok');
+                } else {
+                    showToast('삭제에 실패했습니다.', 'err');
+                }
+            } catch (e) {
+                showToast('네트워크 오류가 발생했습니다.', 'err');
+            }
+        });
+
+        window.addEventListener('beforeunload', () => eventSource?.close());
+
+        // ── Sidebar ───────────────────────────────────────────
+        const sidebar        = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+        document.getElementById('hamburger-btn').addEventListener('click', openSidebar);
+        document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+        sidebarOverlay.addEventListener('click', closeSidebar);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+
+        function openSidebar()  { sidebar.classList.add('show'); sidebarOverlay.classList.add('show'); }
+        function closeSidebar() { sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show'); }
+
+        document.querySelectorAll('.sidebar-link[data-path]').forEach(a => {
+            if (location.pathname === a.dataset.path) a.classList.add('active');
+        });
+
+        // ── Metrics ───────────────────────────────────────────
+        let cpuChart = null, memChart = null, netChart = null;
+        let currentMetricsRange = '1h';
+        let metricsContainerId = null;
+
+        document.getElementById('range-tabs').addEventListener('click', e => {
+            const btn = e.target.closest('.range-btn');
+            if (!btn) return;
+            document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentMetricsRange = btn.dataset.range;
+            if (metricsContainerId) loadMetrics(metricsContainerId, currentMetricsRange);
+        });
+
+        async function loadMetrics(containerId, range) {
+            metricsContainerId = containerId;
+            const section = document.getElementById('metrics-section');
+            const status  = document.getElementById('metrics-status');
+            const charts  = document.getElementById('metrics-charts');
+
+            section.style.display = 'block';
+            status.style.display  = 'block';
+            status.innerHTML = '<span class="spin-icon" style="width:14px;height:14px;border-width:2px;vertical-align:middle"></span> 로딩 중…';
+            charts.style.display  = 'none';
+
+            try {
+                const res = await fetch(`/api/v1/metrics/container/${containerId}?range=${range}`, {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
+                });
+                const data = await res.json();
+
+                const hasData = (data.cpu?.length || data.memory?.length || data.txBytes?.length || data.rxBytes?.length) > 0;
+                if (!hasData) {
+                    status.textContent = '아직 메트릭 데이터가 없습니다.';
+                    return;
+                }
+
+                renderMetricsCharts(data);
+                status.style.display = 'none';
+                charts.style.display = 'grid';
+            } catch (e) {
+                status.textContent = '메트릭 로드에 실패했습니다.';
+            }
+        }
+
+        function clearCharts() {
+            [cpuChart, memChart, netChart].forEach(c => c?.destroy());
+            cpuChart = memChart = netChart = null;
+            metricsContainerId = null;
+        }
+
+        function vmToChartData(values) {
+            if (!values?.length) return { labels: [], data: [] };
+            return {
+                labels: values.map(v => fmtEpoch(Number(v[0]))),
+                data:   values.map(v => parseFloat(v[1]))
+            };
+        }
+
+        function fmtEpoch(epochSec) {
+            const d  = new Date(epochSec * 1000);
+            const hh = String(d.getHours()).padStart(2, '0');
+            const mm = String(d.getMinutes()).padStart(2, '0');
+            const ss = String(d.getSeconds()).padStart(2, '0');
+            if (currentMetricsRange === '15m' || currentMetricsRange === '1h') return `${hh}:${mm}:${ss}`;
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${mo}-${dd} ${hh}:${mm}`;
+        }
+
+        function makeChart(id, datasets, yLabel, yMin, yMax) {
+            return new Chart(document.getElementById(id), {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    animation: false,
+                    plugins: {
+                        legend: { display: datasets.length > 1, position: 'top', labels: { boxWidth: 10, font: { size: 10 } } },
+                        tooltip: {
+                            mode: 'index', intersect: false,
+                            callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}` }
+                        }
+                    },
+                    scales: {
+                        x: { ticks: { font: { size: 9 }, maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+                        y: { min: yMin, max: yMax, ticks: { font: { size: 9 } }, title: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function renderMetricsCharts(data) {
+            clearCharts();
+
+            const cpu = vmToChartData(data.cpu);
+            const mem = vmToChartData(data.memory);
+            const tx  = vmToChartData(data.txBytes);
+            const rx  = vmToChartData(data.rxBytes);
+
+            cpuChart = makeChart('chart-cpu', [{
+                label: 'CPU %',
+                data: cpu.labels.map((l, i) => ({ x: l, y: +(cpu.data[i] * 100).toFixed(2) })),
+                borderColor: '#b91c1c', backgroundColor: 'rgba(185,28,28,0.07)',
+                borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+            }], 'CPU %', 0, 100);
+
+            memChart = makeChart('chart-mem', [{
+                label: 'MB',
+                data: mem.labels.map((l, i) => ({ x: l, y: +mem.data[i].toFixed(1) })),
+                borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.07)',
+                borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+            }], 'MB');
+
+            const netLabels = tx.labels.length >= rx.labels.length ? tx.labels : rx.labels;
+            netChart = makeChart('chart-net', [
+                {
+                    label: 'TX',
+                    data: netLabels.map((l, i) => ({ x: l, y: tx.data[i] ?? null })),
+                    borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.07)',
+                    borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+                },
+                {
+                    label: 'RX',
+                    data: netLabels.map((l, i) => ({ x: l, y: rx.data[i] ?? null })),
+                    borderColor: '#9333ea', backgroundColor: 'rgba(147,51,234,0.07)',
+                    borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+                }
+            ], 'bytes');
+        }
+    </script>
+</body>
+</html>

@@ -32,6 +32,11 @@ jwt:
   access-expiration: 3600000        # 1시간
   refresh-expiration: 1209600000    # 14일 (2주)
 
+victoriametrics:
+  url: https://grafana.peercaas.60jong.dev/vm
+  user: admin
+  password: 991911
+
 peercaas:
   worker:
     queue: peercaas.worker.events

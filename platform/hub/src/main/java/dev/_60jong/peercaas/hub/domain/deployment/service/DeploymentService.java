@@ -5,8 +5,10 @@ import dev._60jong.peercaas.hub.domain.container.service.ContainerService;
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.request.CreateDeploymentRequest;
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.CreateDeploymentResponse;
 import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.DeploymentInfoResponse;
+import dev._60jong.peercaas.hub.domain.deployment.controller.api.response.InstanceResponse;
 import dev._60jong.peercaas.hub.domain.agent.model.entity.WorkerAgent;
 import dev._60jong.peercaas.hub.domain.deployment.model.DeploymentStatus;
+import dev._60jong.peercaas.hub.domain.deployment.model.vo.DeleteContainerPayload;
 import dev._60jong.peercaas.hub.domain.deployment.model.vo.DeploymentParam;
 import dev._60jong.peercaas.hub.domain.deployment.model.vo.CreateDeploymentRequestPayload;
 import dev._60jong.peercaas.hub.domain.deployment.model.entity.Deployment;
@@ -21,6 +23,7 @@ import dev._60jong.peercaas.hub.global.messaging.CommandMessage;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -120,6 +123,35 @@ public class DeploymentService {
 
         containerService.register(deployment, result);
         deployment.markAsRunning();
+    }
+
+    @Transactional
+    public void deleteByTraceId(String traceId, Long requesterId) {
+        Deployment deployment = deploymentRepository.findByTraceId(traceId)
+                .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "Deployment not found"));
+
+        if (!deployment.getRequester().getId().equals(requesterId)) {
+            throw new BaseException(ENTITY_NOT_FOUND, "Deployment not found");
+        }
+
+        // 컨테이너가 실행 중이면 워커에게 삭제 명령 전송
+        if (deployment.getContainer() != null) {
+            CommandMessage<DeleteContainerPayload> message = CommandMessage.of(
+                    "DELETE_CONTAINER",
+                    traceId,
+                    new DeleteContainerPayload(deployment.getContainer().getContainerId())
+            );
+            workerMessageSender.send(deployment.getWorkerId(), message);
+        }
+
+        deployment.updateStatus(DeploymentStatus.STOPPED);
+    }
+
+    public List<InstanceResponse> getMyDeployments(Long requesterId) {
+        return deploymentRepository.findByRequester_IdOrderByCreatedAtDesc(requesterId)
+                .stream()
+                .map(InstanceResponse::from)
+                .toList();
     }
 
     @Transactional
