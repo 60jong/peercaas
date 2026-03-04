@@ -34,6 +34,8 @@ public class Member extends BaseTimeEntity {
     @Enumerated(EnumType.STRING)
     private AccountType accountType;
 
+    private String clientKey;
+
     @OneToMany(mappedBy = "requester")
     private List<Deployment> requestedDeployments = new ArrayList<>();
 
@@ -42,9 +44,18 @@ public class Member extends BaseTimeEntity {
         this.nickname = nickname;
         this.email = email;
         this.password = password;
+        this.clientKey = generateClientKey();
     }
 
     // == Methods == //
+
+    private String generateClientKey() {
+        return java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    public void resetClientKey() {
+        this.clientKey = generateClientKey();
+    }
 
     public void resetPassword(String password) {
         if (!StringUtils.hasText(password)) {
@@ -52,6 +63,12 @@ public class Member extends BaseTimeEntity {
         }
 
         this.password = password;
+    }
+
+    public void updateProfile(String nickname) {
+        if (StringUtils.hasText(nickname)) {
+            this.nickname = nickname;
+        }
     }
 
     public void addDeployment(Deployment deployment) {

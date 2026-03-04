@@ -68,6 +68,7 @@ func main() {
 		latency,
 		repo,
 		shipper,
+		store,
 	)
 
 	// Register command handlers

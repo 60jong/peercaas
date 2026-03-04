@@ -23,8 +23,22 @@ public class MemberApiController {
         return ApiResponse.success(new MemberProfileResponse(
                 member.getId(),
                 member.getEmail(),
-                member.getNickname()
+                member.getNickname(),
+                member.getClientKey()
         ));
+    }
+
+    @PatchMapping("/me")
+    public ApiResponse<Void> updateMe(@Authenticated Long memberId, @RequestBody dev._60jong.peercaas.hub.domain.member.controller.api.request.UpdateMemberRequest request) {
+        memberService.updateMember(memberId, request.getNickname());
+        return ApiResponse.success(null);
+    }
+
+    @PostMapping("/me/client-key")
+    public ApiResponse<String> resetClientKey(@Authenticated Long memberId) {
+        memberService.resetClientKey(memberId);
+        Member member = memberService.findById(memberId);
+        return ApiResponse.success(member.getClientKey());
     }
 
 }

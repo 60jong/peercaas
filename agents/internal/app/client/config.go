@@ -9,6 +9,7 @@ const defaultHubURL = "http://localhost:8080"
 
 type Config struct {
 	ContainerID string // env: CONTAINER_ID (required)
+	ClientKey   string // env: PEERCAAS_CLIENT_KEY (optional, for metrics aggregation)
 	HubURL      string // env: HUB_URL (default: http://localhost:8080)
 }
 
@@ -18,6 +19,12 @@ func LoadConfig() *Config {
 		log.Fatal("CONTAINER_ID environment variable is required")
 	}
 
+	clientKey := os.Getenv("PEERCAAS_CLIENT_KEY")
+	if clientKey == "" {
+		// fallback to containerID if key not provided to keep existing behavior
+		clientKey = containerID
+	}
+
 	hubURL := os.Getenv("HUB_URL")
 	if hubURL == "" {
 		hubURL = defaultHubURL
@@ -25,6 +32,7 @@ func LoadConfig() *Config {
 
 	return &Config{
 		ContainerID: containerID,
+		ClientKey:   clientKey,
 		HubURL:      hubURL,
 	}
 }

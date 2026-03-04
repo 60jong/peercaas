@@ -24,9 +24,9 @@ type WorkerAgent struct {
 }
 
 // NewAgent creates a new Worker instance with required dependencies.
-func NewAgent(mq core.Broker, cfg config.WorkerConfig, heartbeatQueue string, dockerCli *client.Client, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer, repo *metrics.MetricRepository, shipper *metrics.MetricShipper) *WorkerAgent {
-	collector := metrics.NewCollector(cfg.MaxCPU, cfg.MaxMemoryMb, dockerCli)
-	h := NewHeartbeatManager(mq, cfg.WorkerID, heartbeatQueue, traffic, latency, collector, repo, shipper, dockerCli)
+func NewAgent(mq core.Broker, cfg config.WorkerConfig, heartbeatQueue string, dockerCli *client.Client, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer, repo *metrics.MetricRepository, shipper *metrics.MetricShipper, store *ContainerStore) *WorkerAgent {
+	collector := metrics.NewCollector(cfg.MaxCPU, cfg.MaxMemoryMb, dockerCli, store)
+	h := NewHeartbeatManager(mq, cfg.WorkerID, heartbeatQueue, traffic, latency, collector, repo, shipper, dockerCli, store)
 
 	return &WorkerAgent{
 		config:    cfg,

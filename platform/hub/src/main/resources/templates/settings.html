@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings | PeerCaaS</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .settings-container { padding: 3rem 5%; max-width: 800px; margin: 0 auto; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+        .tab { padding: 8px 16px; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: 0.2s; }
+        .tab.active { background: var(--bg-elevated); color: var(--primary-color); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 2rem; margin-bottom: 1.5rem; }
+        .card-title { font-size: 1.25rem; font-weight: 700; color: var(--text-heading); margin-bottom: 1.5rem; }
+        
+        .form-group { margin-bottom: 1.5rem; }
+        .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; }
+        .input-field { width: 100%; padding: 0.75rem; background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-main); outline: none; }
+        .input-field:focus { border-color: var(--primary-color); }
+
+        .profile-img-preview { width: 100px; height: 100px; border-radius: 50%; border: 2px solid var(--border-color); object-fit: cover; margin-bottom: 1rem; filter: invert(0.8); }
+        
+        .key-box { background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 1rem; font-family: 'JetBrains Mono', monospace; color: var(--primary-color); display: flex; justify-content: space-between; align-items: center; }
+        .copy-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; }
+        .copy-btn:hover { color: var(--text-main); }
+    </style>
+</head>
+<body>
+    <!-- Sidebar (Same as others) -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="sidebar-close">&#10005;</button>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/instances" class="sidebar-link"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>Instances</a>
+            <a href="/dashboard" class="sidebar-link"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard</a>
+            <a href="/deploy" class="sidebar-link"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>Deploy</a>
+        </nav>
+    </div>
+
+    <nav>
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <button class="hamburger-btn" id="hamburger-btn">&#9776;</button>
+            <a href="/" class="logo">PEERCAAS</a>
+        </div>
+        <div class="nav-links">
+            <div id="profile-section" class="profile-container">
+                <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
+            </div>
+        </div>
+    </nav>
+
+    <div class="settings-container">
+        <h1 style="margin-bottom: 2rem;">Settings</h1>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="profile">Profile</div>
+            <div class="tab" data-tab="client">Client</div>
+            <div class="tab" data-tab="worker">Worker</div>
+        </div>
+
+        <!-- Profile Tab -->
+        <div id="profile-tab" class="tab-content active">
+            <div class="card">
+                <div class="card-title">Public Profile</div>
+                <div class="form-group">
+                    <label>Profile Picture</label>
+                    <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img-preview">
+                    <button class="btn btn-outline btn-block" disabled>Change Avatar (TBD)</button>
+                </div>
+                <div class="form-group">
+                    <label>Nickname</label>
+                    <input type="text" id="nickname-input" class="input-field" placeholder="Enter nickname">
+                </div>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="text" id="email-display" class="input-field" readonly style="opacity: 0.6; cursor: not-allowed;">
+                </div>
+                <button class="btn btn-primary" id="save-profile-btn">Save Changes</button>
+            </div>
+        </div>
+
+        <!-- Client Tab -->
+        <div id="client-tab" class="tab-content">
+            <div class="card">
+                <div class="card-title">Client Agent Access</div>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Use this key to authenticate your client-agent and enable metrics reporting.</p>
+                <div class="form-group">
+                    <label>Client Key</label>
+                    <div class="key-box">
+                        <span id="client-key-display">••••••••••••••••</span>
+                        <button class="copy-btn" id="copy-key-btn"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg></button>
+                    </div>
+                </div>
+                <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                    <div style="color: var(--red); font-weight: 700; margin-bottom: 0.5rem;">Danger Zone</div>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Regenerating the key will immediately invalidate the existing one.</p>
+                    <button class="btn btn-outline" id="regen-key-btn" style="color: var(--red); border-color: rgba(239,68,68,0.3);">Regenerate Key</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Worker Tab -->
+        <div id="worker-tab" class="tab-content">
+            <div class="card">
+                <div class="card-title">Worker Node Settings</div>
+                <p style="color: var(--text-muted); text-align: center; padding: 2rem;">Worker node configuration options will be available soon.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let userData = null;
+
+        // Tab Switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab, .tab-content').forEach(el => el.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab + '-tab').classList.add('active');
+            });
+        });
+
+        async function loadSettings() {
+            const token = localStorage.getItem('accessToken');
+            if (!token) return location.href = '/signin';
+
+            try {
+                const res = await fetch('/api/v1/member/me', { headers: { 'Authorization': `Bearer ${token}` } });
+                const result = await res.json();
+                userData = result.data;
+                document.getElementById('nickname-input').value = userData.nickname;
+                document.getElementById('email-display').value = userData.email;
+                document.getElementById('client-key-display').textContent = userData.clientKey;
+            } catch (e) {}
+        }
+
+        document.getElementById('save-profile-btn').addEventListener('click', async () => {
+            const token = localStorage.getItem('accessToken');
+            const nickname = document.getElementById('nickname-input').value.trim();
+            if (!nickname) return alert('Nickname cannot be empty.');
+
+            try {
+                const res = await fetch('/api/v1/member/me', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ nickname })
+                });
+                if (res.ok) {
+                    alert('Profile updated successfully.');
+                    localStorage.setItem('nickname', nickname); // Update local cache
+                }
+            } catch (e) { alert('Failed to update profile.'); }
+        });
+
+        document.getElementById('regen-key-btn').addEventListener('click', async () => {
+            if (!confirm('Regenerate Client Key? This will disconnect current agents.')) return;
+            const token = localStorage.getItem('accessToken');
+            try {
+                const res = await fetch('/api/v1/member/me/client-key', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                document.getElementById('client-key-display').textContent = result.data;
+                alert('Key regenerated.');
+            } catch (e) { alert('Failed to regenerate key.'); }
+        });
+
+        document.getElementById('copy-key-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(document.getElementById('client-key-display').textContent);
+            alert('Copied to clipboard.');
+        });
+
+        // Sidebar
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        document.getElementById('hamburger-btn').addEventListener('click', () => {
+            sidebar.classList.add('show'); sidebarOverlay.classList.add('show');
+        });
+        document.getElementById('sidebar-close').addEventListener('click', () => {
+            sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show');
+        });
+
+        loadSettings();
+    </script>
+</body>
+</html>

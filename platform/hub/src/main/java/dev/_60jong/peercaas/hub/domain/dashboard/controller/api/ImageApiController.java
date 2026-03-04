@@ -41,6 +41,21 @@ public class ImageApiController {
         }
     }
 
+    /**
+     * Docker Hub 리포지토리 검색
+     */
+    @GetMapping("/search")
+    public ApiResponse<Object> search(@RequestParam String q) {
+        String url = String.format("https://hub.docker.com/v2/search/repositories/?query=%s", q);
+        try {
+            // Docker Hub 응답을 그대로 중계
+            Object response = restTemplate.getForObject(url, Object.class);
+            return ApiResponse.success(response);
+        } catch (Exception e) {
+            return ApiResponse.success(null);
+        }
+    }
+
     @Getter
     public static class ImageValidateResponse {
         private final boolean exists;

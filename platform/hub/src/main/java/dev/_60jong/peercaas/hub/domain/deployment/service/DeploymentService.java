@@ -69,6 +69,9 @@ public class DeploymentService {
 
         // 3. Entity -> WorkerPayload 변환
         CreateDeploymentRequestPayload payload = convertToWorkerPayload(deployment);
+        
+        // Inject ClientKey into Env for metrics aggregation
+        payload.getEnv().put("PEERCAAS_CLIENT_KEY", requester.getClientKey());
 
         // 4. MQ 전송
         CommandMessage<CreateDeploymentRequestPayload> message = CommandMessage.of(

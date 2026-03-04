@@ -1,0 +1,332 @@
+================================================================================
+PeerCaaS - WebRTC NAT Traversal 성능 이슈 분석 및 해결 방안
+================================================================================
+작성일: 2026-02-27
+상태: 분석 완료, TURN 서버 도입 필요
+
+================================================================================
+1. 증상
+================================================================================
+
+환경:
+  - Client Agent: macOS (로컬)
+  - Worker Agent: Windows + Docker Desktop (외부 호스트, --privileged DinD)
+  - 컨테이너: PostgreSQL (5432/tcp)
+  - 통신 방식: WebRTC DataChannel (P2P)
+
+현상:
+  - 로컬(같은 네트워크)에서는 빠르게 동작
+  - 외부 호스트로 연결 시 극도로 느림 (0.7 KB/s)
+  - WebRTC 연결이 20~30초마다 disconnect → reconnect 반복
+  - psql 접속은 되지만 쿼리 응답에 수십 초 소요
+
+로그 증거:
+  [Timing][Bridge] TX done: 39.7 KB in 56.026s (0.7 KB/s)
+  [Timing][Bridge] RX done: 39.0 KB in 56.078s (0.7 KB/s)
+  >> [WEBRTC] Connection state: disconnected  (연결 후 ~20초 만에)
+
+  Setup 자체는 빠름:
+  [Timing][Client] DataChannel created in 38.541us
+  [Timing][Client] DataChannel opened in 91.667us
+  [Timing][Worker] TCP connect to container 127.0.0.1:5433 in 651.279us
+  [Timing][Worker] Total setup (DC received -> bridge ready): 812.147us
+
+
+================================================================================
+2. 근본 원인: NAT 유형과 STUN의 한계
+================================================================================
+
+[ NAT의 4가지 유형 ]
+
+(1) Full Cone NAT
+    내부 192.168.1.5:3000 -> NAT -> 공인 1.2.3.4:50000
+    한 번 매핑되면, 누구든 1.2.3.4:50000으로 보내면 도달.
+    가장 관대. P2P 쉬움.
+
+(2) Restricted Cone NAT
+    매핑은 동일하지만, 내부에서 먼저 해당 IP에 보낸 적 있어야 수신 허용.
+    (포트 무관)
+
+(3) Port Restricted Cone NAT
+    내부에서 먼저 해당 IP:Port에 보낸 적 있어야 수신 허용.
+    대부분의 가정용 공유기. STUN으로 P2P 가능.
+
+(4) Symmetric NAT  <-- 문제의 원인
+    목적지가 달라지면 NAT가 다른 외부 포트를 할당.
+
+    192.168.1.5:3000 -> STUN 서버로 보낼 때 -> 1.2.3.4:50000
+    192.168.1.5:3000 -> Peer로 보낼 때      -> 1.2.3.4:50001  (포트 다름!)
+
+
+[ STUN의 동작 원리 ]
+
+    Client: "내 공인 IP:Port가 뭐야?"
+         |
+         v
+    STUN Server (stun.google.com:19302)
+         |
+         v
+    응답: "너는 1.2.3.4:50000으로 보인다"
+
+    Client는 이 1.2.3.4:50000을 ICE candidate(srflx)로 SDP에 담아
+    Peer에게 전달한다.
+
+  Cone NAT에서:
+    STUN에 보낼 때 매핑된 50000번이 Peer에 보낼 때도 동일
+    -> Peer가 50000번으로 보내면 도달 -> P2P 성공
+
+  Symmetric NAT에서:
+    STUN에 보낼 때 매핑 = 1.2.3.4:50000
+    Peer에 보낼 때 매핑  = 1.2.3.4:50001  (다른 포트!)
+    -> Peer는 SDP에 적힌 50000번으로 보냄 -> NAT가 거부
+    -> STUN으로 알아낸 포트가 실제 통신 포트와 달라 실패
+
+
+================================================================================
+3. 현재 네트워크 토폴로지 (이중/삼중 NAT)
+================================================================================
+
+    [Client Agent - macOS]
+      192.168.1.5:3000
+           |
+           v
+    [공유기 NAT] --- Port Restricted 또는 Symmetric
+      공인 IP A:50000
+           |
+           v
+      ~~~ 인터넷 ~~~
+           |
+           v
+    [Worker 호스트 - Windows]
+      공인 IP B
+           |
+           v
+    [Docker Desktop (Hyper-V/WSL2 NAT)] --- Symmetric NAT
+      172.17.0.1 -> 10.0.2.15 (가상 NIC)
+           |
+           v
+    [DinD Container (--privileged)]
+      172.18.0.2:3000  <-- Worker Agent 실행 위치
+
+  Worker 쪽은 3겹 NAT:
+    1. Container -> Docker bridge network
+    2. Docker Desktop -> Hyper-V virtual switch
+    3. Windows 호스트 -> 공유기
+
+
+================================================================================
+4. 왜 "연결은 되는데" 느린가
+================================================================================
+
+  ICE agent가 수집하는 candidate:
+    1. host candidate:   172.18.0.2:5000  (컨테이너 사설 IP)
+    2. srflx candidate:  1.2.3.4:50000   (STUN으로 알아낸 공인 IP)
+
+  ICE connectivity check 시 양쪽이 동시에 STUN Binding Request를 보내면
+  NAT에 "구멍"이 뚫리는 경우가 있음 (hole punching).
+
+  Symmetric NAT에서도 운 좋으면 연결이 됨:
+    - NAT가 할당하는 포트가 순차 증가 패턴이면
+    - 타이밍이 맞을 때 패킷이 우연히 도달
+
+  하지만:
+    - 성공률이 낮음 (일부 패킷만 통과)
+    - NAT 매핑이 수시로 만료/변경됨
+    -> 패킷 유실률이 극도로 높음 -> 0.7 KB/s
+    -> 매핑 만료 시 연결 끊김 -> 20~30초마다 disconnect
+
+
+================================================================================
+5. SCTP 재전송이 느린 이유
+================================================================================
+
+  WebRTC DataChannel 프로토콜 스택:
+
+    [Application Data "SELECT * FROM users"]
+             |
+             v
+    [SCTP] - 신뢰성 보장 (TCP처럼 재전송)
+      - Chunk로 분할
+      - 각 Chunk에 시퀀스 번호
+      - ACK 안 오면 재전송 (RTO 기반, 지수 백오프)
+             |
+             v
+    [DTLS] - 암호화
+             |
+             v
+    [UDP] - 전송
+             |
+        ~~~ NAT에서 대부분 유실 ~~~
+             |
+             v
+    [상대방 수신]
+
+  패킷 유실 시 SCTP 동작:
+
+    Chunk 1 전송 -> ACK 안 옴 -> RTO(1초) 대기 -> 재전송
+    Chunk 1 재전송 -> ACK 안 옴 -> RTO(2초) 대기 -> 재전송 (지수 백오프)
+    Chunk 1 재전송 -> ACK 도착! -> Chunk 2 전송
+    Chunk 2 전송 -> ACK 안 옴 -> RTO(1초) 대기 -> ...
+
+  39KB 전송에 56초 걸린 계산:
+    - 39KB / MTU(~1200B) = 약 33개 UDP 패킷
+    - 각 패킷 평균 3~5번 전달 시도
+    - 각 재전송마다 1~4초 대기 (지수 백오프)
+    - 33 x 평균 1.7초 = 약 56초
+
+
+================================================================================
+6. 해결 방법: TURN 서버
+================================================================================
+
+  [ TURN의 원리 ]
+
+    NAT를 뚫는 게 아니라 우회한다.
+
+    [Client]                [TURN Server]               [Worker]
+        |                   (공인 IP, 고정)                  |
+        |-- Allocate Req -->|                                |
+        |<-- 릴레이 주소 ---|                                |
+        |                   |                                |
+        |-- Data(relay) --> | ------- Forward -------->      |
+        |<-- Data(relay) -- | <------ Forward ---------      |
+
+    - Client -> TURN: 일반적인 Client-Server 통신 (NAT 문제 없음)
+    - Worker -> TURN: 일반적인 Client-Server 통신 (NAT 문제 없음)
+    - TURN이 양쪽 데이터를 중계
+    - 100% 동작 보장
+
+  [ ICE candidate 우선순위 ]
+
+    1. host candidate:   172.18.0.2:5000     (직접 연결, 사설망)
+    2. srflx candidate:  1.2.3.4:50000       (STUN, NAT 뚫기 시도)
+    3. relay candidate:  turn-server:3478    (TURN, 확실한 우회)
+
+    ICE는 host -> srflx -> relay 순서로 시도하고, 최적 경로를 선택.
+    TURN이 있으면 srflx 실패해도 relay로 확실하게 연결.
+
+  [ 적용 방법 ]
+
+    1. coturn 서버 배포 (Docker로 가능):
+       docker run -d --network=host coturn/coturn \
+         -n --lt-cred-mech --realm=peercaas \
+         --user=peercaas:password --fingerprint
+
+    2. 양쪽 ICE 설정에 TURN 추가:
+       현재 (agents/internal/app/worker/webrtc_handler.go:69-73,
+              agents/internal/app/client/tunnel.go:95-99):
+
+       ICEServers: []webrtc.ICEServer{
+           {URLs: []string{"stun:stun.l.google.com:19302"}},
+       }
+
+       변경:
+       ICEServers: []webrtc.ICEServer{
+           {URLs: []string{"stun:stun.l.google.com:19302"}},
+           {
+               URLs:       []string{"turn:your-turn-server:3478"},
+               Username:   "peercaas",
+               Credential: "password",
+           },
+       }
+
+
+================================================================================
+7. 대안 해결책
+================================================================================
+
+  (1) Worker를 --network=host로 실행
+      - Docker NAT 레이어 제거
+      - DinD 구조에서 제약 있을 수 있음
+      - 여전히 공유기 NAT는 남아있음
+
+  (2) Worker 호스트에서 UDP 포트 포워딩
+      - 특정 UDP 포트 범위를 컨테이너로 포워딩
+      - ICE candidate가 직접 도달 가능
+      - 관리 복잡도 증가
+
+  (3) VPN 터널 (WireGuard 등)
+      - 양쪽을 같은 사설 네트워크로 묶음
+      - NAT 문제 자체가 사라짐
+      - 별도 인프라 필요
+
+
+================================================================================
+8. 디버깅용 로깅 (현재 추가된 상태)
+================================================================================
+
+  추가된 로그 포인트:
+
+  [Client 쪽] connection_manager.go
+    - [Timing][Client] TCP accepted        : 연결 수락 시점
+    - [Timing][Client] DataChannel created  : DC 생성 소요 시간
+    - [Timing][Client] DataChannel opened   : TCP accept ~ DC open 총 시간
+
+  [Worker 쪽] webrtc_handler.go
+    - [Timing][Worker] DataChannel received : DC 수신 시점
+    - [Timing][Worker] DataChannel opened   : DC open 소요 시간
+    - [Timing][Worker] TCP connect          : 컨테이너 연결 소요 시간
+    - [Timing][Worker] Total setup          : DC received ~ bridge 시작 총 시간
+    - [ICE] Candidate                       : ICE candidate 정보 (type, addr, protocol)
+    - [ICE] Nominated pair                  : 선택된 ICE pair + RTT
+
+  [양쪽] traffic.go BridgeWithTraffic()
+    - [Timing][Bridge] Started              : bridge 시작
+    - [Timing][Bridge] TX done              : 전송량 + 소요시간 + throughput (KB/s)
+    - [Timing][Bridge] RX done              : 수신량 + 소요시간 + throughput (KB/s)
+    - [Timing][Bridge] Closing              : bridge 총 생존 시간
+
+
+================================================================================
+9. 면접 포인트 정리
+================================================================================
+
+  Q: "왜 WebRTC P2P가 안 되나요?"
+  A: Symmetric NAT에서는 STUN으로 알아낸 외부 포트가 목적지마다 달라져서,
+     SDP에 담긴 srflx candidate의 포트로 상대방이 보내도 NAT가 거부합니다.
+
+  Q: "연결은 되는데 왜 느려요?"
+  A: Hole punching이 우연히 성공해 ICE connected는 되지만, UDP 패킷
+     유실률이 높아 SCTP 재전송 지수 백오프가 발생합니다.
+     39KB를 33개 패킷으로 나눠 보내는데, 각 패킷마다 평균 1.7초의
+     재전송 대기가 누적되어 56초가 걸렸습니다.
+
+  Q: "Docker Desktop이 왜 문제인가요?"
+  A: Hyper-V 가상 스위치가 추가 NAT 레이어를 만들어 이중/삼중 NAT를
+     형성합니다. NAT 레이어가 많을수록 Symmetric NAT가 될 확률이 높습니다.
+
+  Q: "TURN은 어떻게 해결하나요?"
+  A: NAT를 뚫지 않고 공인 IP의 중계 서버를 통해 우회합니다.
+     양쪽 모두 TURN 서버와는 일반적인 Client-Server 통신이므로
+     NAT 유형에 관계없이 100% 동작합니다.
+
+  Q: "ICE는 뭐하는 건가요?"
+  A: host(사설IP)/srflx(STUN)/relay(TURN) candidate를 모두 수집하고,
+     connectivity check를 통해 실제 패킷이 오가는 최적 경로를 선택합니다.
+     우선순위: host > srflx > relay (직접 연결이 가능하면 relay를 쓰지 않음)
+
+  Q: "SCTP는 TCP와 뭐가 다른가요?"
+  A: SCTP는 UDP 위에서 동작하면서 TCP처럼 신뢰성을 제공합니다.
+     멀티스트리밍, 멀티호밍을 지원하고, WebRTC DataChannel의 하부 프로토콜입니다.
+     패킷 유실 시 TCP와 마찬가지로 RTO 지수 백오프로 재전송합니다.
+
+
+================================================================================
+10. 관련 코드 위치
+================================================================================
+
+  [ICE/WebRTC 설정]
+  - agents/internal/app/client/tunnel.go:95-99          (Client ICEServers)
+  - agents/internal/app/worker/webrtc_handler.go:69-73  (Worker ICEServers)
+
+  [DataChannel 브릿지]
+  - agents/internal/app/client/connection_manager.go:157-188  (Client handleWebRTC)
+  - agents/internal/app/worker/webrtc_handler.go:81-119       (Worker OnDataChannel)
+  - agents/internal/metrics/traffic.go:147-163                (BridgeWithTraffic)
+
+  [Transport 전환 로직]
+  - agents/internal/app/client/connection_manager.go:63-102   (Run: WebRTC/Relay 전환)
+  - agents/internal/app/client/connection_manager.go:231-254  (watchWebRTCAndFallback)
+  - agents/internal/app/client/connection_manager.go:258-284  (retryWebRTCLoop)
+
+================================================================================

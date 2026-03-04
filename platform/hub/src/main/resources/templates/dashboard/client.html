@@ -3,62 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PeerCaaS — Client Dashboard</title>
+  <title>PeerCaaS - Client Dashboard</title>
+  <link rel="stylesheet" th:href="@{/css/style.css}">
   <style>
-    :root {
-        --primary-color: #b91c1c;
-        --bg-color: #f8fafc;
-        --border-color: #e2e8f0;
-        --text-main: #1e293b;
-        --text-muted: #64748b;
-    }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      background: var(--bg-color);
-      color: var(--text-main);
-      font-family: 'Inter', -apple-system, sans-serif;
-      font-size: 14px;
-      padding: 24px;
-    }
-
+    body { background: var(--bg-color); color: var(--text-main); font-family: 'Inter', sans-serif; font-size: 14px; padding: 24px; }
     .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-    .badge { padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: #dbeafe; color: #1e40af; }
-    .agent-key { font-family: monospace; font-size: 12px; color: var(--text-muted); }
-
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
-    .card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; }
-    .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
-    .card-value { font-size: 28px; font-weight: 800; }
-    .tx { color: var(--primary-color); }
-    .rx { color: #2563eb; }
-
-    .table-wrap { background: white; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    table { width: 100%; border-collapse: collapse; text-align: left; }
-    th { padding: 12px 16px; background: #f8fafc; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
-    td { padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(99,102,241,0.15); color: var(--secondary-color); }
     
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; transition: all 0.3s; }
+    .card:hover { border-color: rgba(0, 212, 170, 0.3); box-shadow: 0 0 20px var(--primary-glow); }
+    .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+    .card-value { font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+    .tx { color: var(--primary-color); }
+    .rx { color: var(--secondary-color); }
+
+    .table-wrap { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { padding: 12px 16px; background: var(--bg-elevated); font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-size: 13px; color: var(--text-main); }
+
     .transport-badge { padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
-    .t-webrtc { background: #dbeafe; color: #1e40af; }
-    .t-relay { background: #ffedd5; color: #9a3412; }
+    .t-webrtc { background: rgba(99,102,241,0.15); color: var(--secondary-color); }
+    .t-relay { background: rgba(245,158,11,0.15); color: #f59e0b; }
 
     .waiting { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted); }
-    .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
+    .spinner { width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="header">
-    <span class="badge">Client Agent</span>
-    <span class="agent-key" th:text="${key}">key</span>
-    <span id="updated-time" style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Connecting…</span>
+    <span class="badge">Client Agent Overview</span>
+    <span id="updated-time" style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Connecting...</span>
   </div>
 
   <div class="cards">
-    <div class="card"><div class="card-label">↑ Total Tx</div><div class="card-value tx" id="s-tx">—</div></div>
-    <div class="card"><div class="card-label">↓ Total Rx</div><div class="card-value rx" id="s-rx">—</div></div>
-    <div class="card"><div class="card-label">Containers</div><div class="card-value" id="s-containers">—</div></div>
-    <div class="card"><div class="card-label">Connections</div><div class="card-value" id="s-conns">—</div></div>
+    <div class="card"><div class="card-label">Total Tx</div><div class="card-value tx" id="s-tx">&mdash;</div></div>
+    <div class="card"><div class="card-label">Total Rx</div><div class="card-value rx" id="s-rx">&mdash;</div></div>
+    <div class="card"><div class="card-label">Containers</div><div class="card-value" id="s-containers">&mdash;</div></div>
+    <div class="card"><div class="card-label">Connections</div><div class="card-value" id="s-conns">&mdash;</div></div>
   </div>
 
   <div id="table-area">
@@ -66,7 +50,16 @@
   </div>
 
   <script th:inline="javascript">
-    const AGENT_KEY = [[${key}]];
+    let clientKey = '';
+
+    async function loadKey() {
+        try {
+            const token = localStorage.getItem('accessToken');
+            const res = await fetch('/api/v1/member/me', { headers: { 'Authorization': `Bearer ${token}` } });
+            const result = await res.json();
+            clientKey = result.data.clientKey;
+        } catch (e) {}
+    }
 
     function fmtBytes(n) {
       n = Number(n) || 0;
@@ -89,33 +82,36 @@
 
       const area = document.getElementById('table-area');
       if (containers.length === 0) {
-        area.innerHTML = '<div class="waiting"><div>No active traffic.</div></div>';
+        area.innerHTML = '<div class="waiting"><div>No active traffic reported.</div></div>';
         return;
       }
 
       const rows = containers.map(c => `
         <tr>
-          <td style="font-family: monospace;">${c.containerId}</td>
+          <td style="font-family: 'JetBrains Mono', monospace;">${c.containerId}</td>
           <td><span class="transport-badge ${c.transport === 'webrtc' ? 't-webrtc' : 't-relay'}">${c.transport.toUpperCase()}</span></td>
           <td class="tx">${fmtBytes(c.txBytes)}</td>
           <td class="rx">${fmtBytes(c.rxBytes)}</td>
           <td>${c.connCount}</td>
         </tr>`).join('');
 
-      area.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Container ID</th><th>Transport</th><th>↑ Tx</th><th>↓ Rx</th><th>Conns</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      area.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Container ID</th><th>Transport</th><th>Tx</th><th>Rx</th><th>Conns</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
 
     async function refresh() {
+      if (!clientKey) return;
       try {
-        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(AGENT_KEY)}`);
+        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(clientKey)}`);
         if (res.status === 404) return;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         render(await res.json());
       } catch (e) {}
     }
 
-    refresh();
-    setInterval(refresh, 2000);
+    loadKey().then(() => {
+        refresh();
+        setInterval(refresh, 5000);
+    });
   </script>
 </body>
 </html>

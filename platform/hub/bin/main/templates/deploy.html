@@ -502,7 +502,6 @@
                     </div>
                     <a href="/instances" class="dropdown-item">Instances</a>
                     <a href="/dashboard" class="dropdown-item">Dashboard</a>
-                    <a href="/dashboard/settings" class="dropdown-item">Settings</a>
                     <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
                 </div>
             </div>
@@ -538,18 +537,6 @@
                 <div class="section-label">Container</div>
                 <label class="field-label">Container Name</label>
                 <input type="text" class="field-input" id="input-name" placeholder="e.g. my-nginx-app">
-            </div>
-
-            <div class="section-card">
-                <div class="section-label">Resources</div>
-                <div class="row-header" style="grid-template-columns: 1fr 1fr;">
-                    <span>CPUs</span>
-                    <span>Memory (MB)</span>
-                </div>
-                <div class="dynamic-row" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <input type="number" class="field-input" id="input-cpu" value="0.5" step="0.1" min="0.1">
-                    <input type="number" class="field-input" id="input-mem" value="512" step="128" min="64">
-                </div>
             </div>
 
             <div class="section-card">
@@ -886,8 +873,6 @@
             const repo  = document.getElementById('input-repo').value.trim();
             const image = document.getElementById('input-image').value.trim();
             const tag   = document.getElementById('input-tag').value.trim() || 'latest';
-            const cpu   = parseFloat(document.getElementById('input-cpu').value);
-            const mem   = parseInt(document.getElementById('input-mem').value);
 
             const ports = [];
             document.querySelectorAll('.port-row').forEach(row => {
@@ -906,10 +891,8 @@
             return {
                 name:  document.getElementById('input-name').value.trim() || null,
                 image: repo ? `${repo}/${image}:${tag}` : `${image}:${tag}`,
-                resources: { cpu, memoryMb: mem },
                 ports,
-                env,
-                restartPolicy: 'always'
+                env
             };
         }
 
@@ -918,10 +901,8 @@
             return {
                 name:  parsed.name  || null,
                 image: parsed.image || null,
-                resources: { cpu: 0.5, memoryMb: 512 }, // Default for CLI for now
                 ports: parsed.ports,
-                env:   parsed.env,
-                restartPolicy: 'always'
+                env:   parsed.env
             };
         }
 

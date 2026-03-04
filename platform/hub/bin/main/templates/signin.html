@@ -5,45 +5,122 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In | PeerCaaS</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .auth-body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .auth-content {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+            position: relative;
+        }
+        .auth-content::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0, 212, 170, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 212, 170, 0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+        }
+    </style>
 </head>
-<body class="auth-wrapper">
+<body class="auth-body">
 
-    <div class="auth-card">
-        <a href="/" class="logo">PEERCAAS</a>
-        <h2>Welcome back</h2>
-        <p class="subtitle">Please enter your details to sign in.</p>
-
-        <form id="signin-form">
-            <div class="form-group">
-                <label for="email">Email Address</label>
-                <input type="email" id="email" name="email" placeholder="name@company.com" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" placeholder="••••••••" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">Sign In</button>
-        </form>
-
-        <div class="divider">Or continue with</div>
-
-        <div class="social-buttons">
-            <a href="#" class="social-btn">
-                <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="social-icon" alt="Google">
-                Google
-            </a>
-            <a href="#" class="social-btn">
-                <img src="https://www.svgrepo.com/show/475647/github-color.svg" class="social-icon" alt="GitHub">
-                GitHub
-            </a>
+    <!-- Sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="sidebar-close">&#10005;</button>
         </div>
+        <nav class="sidebar-nav">
+            <a href="/instances" class="sidebar-link" data-path="/instances">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link" data-path="/dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+            <a href="/deploy" class="sidebar-link" data-path="/deploy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+        </nav>
+    </div>
 
-        <div class="footer-link">
-            Don't have an account? <a href="/signup">Sign up</a>
+    <nav>
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu">&#9776;</button>
+            <a href="/" class="logo">PEERCAAS</a>
+        </div>
+        <div class="search-container">
+            <input type="text" class="search-input" id="image-search" placeholder="Search Docker images...">
+            <svg class="search-icon" id="search-btn" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px; position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; opacity: 0.5;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+        </div>
+        <div class="nav-links">
+            <a href="/signup" class="btn btn-primary">Sign Up</a>
+        </div>
+    </nav>
+
+    <div class="auth-content">
+        <div class="auth-card">
+            <h2>Welcome back</h2>
+            <p class="subtitle">Please enter your details to sign in.</p>
+
+            <form id="signin-form">
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" name="email" placeholder="name@company.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+            </form>
+
+            <div class="divider">Or continue with</div>
+
+            <div class="social-buttons">
+                <a href="#" class="social-btn">
+                    <img src="https://www.svgrepo.com/show/475656/google-color.svg" class="social-icon" alt="Google">
+                    Google
+                </a>
+                <a href="#" class="social-btn">
+                    <img src="https://www.svgrepo.com/show/475647/github-color.svg" class="social-icon" alt="GitHub">
+                    GitHub
+                </a>
+            </div>
+
+            <div class="footer-link">
+                Don't have an account? <a href="/signup">Sign up</a>
+            </div>
         </div>
     </div>
 
     <script>
+        // ── Sidebar ───────────────────────────────────────────
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        document.getElementById('hamburger-btn').addEventListener('click', () => {
+            sidebar.classList.add('show'); sidebarOverlay.classList.add('show');
+        });
+        document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+        sidebarOverlay.addEventListener('click', closeSidebar);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+        function closeSidebar() { sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show'); }
+
+        // ── Sign In ──────────────────────────────────────────
         document.getElementById('signin-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
@@ -61,7 +138,8 @@
                 if (response.ok && result.code === 200) {
                     localStorage.setItem('accessToken', result.data.accessToken);
                     localStorage.setItem('nickname', result.data.nickname);
-                    location.href = '/';
+                    const redirect = new URLSearchParams(location.search).get('redirect');
+                    location.href = redirect || '/';
                 } else {
                     alert(result.message || 'Signin failed');
                 }

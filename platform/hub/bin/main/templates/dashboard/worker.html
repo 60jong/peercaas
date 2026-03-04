@@ -3,16 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PeerCaaS — Worker Dashboard</title>
+  <title>PeerCaaS - Worker Dashboard</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
     :root {
-        --primary-color: #b91c1c;
-        --primary-hover: #991b1b;
-        --bg-color: #f8fafc;
-        --card-bg: #ffffff;
-        --text-main: #1e293b;
-        --text-muted: #64748b;
-        --border-color: #e2e8f0;
+        --bg-color: #0a0a0f;
+        --bg-card: #111118;
+        --bg-elevated: #1a1a24;
+        --primary-color: #00d4aa;
+        --primary-hover: #00f0c0;
+        --primary-subtle: rgba(0, 212, 170, 0.1);
+        --primary-glow: rgba(0, 212, 170, 0.15);
+        --secondary-color: #6366f1;
+        --text-main: #e4e4e7;
+        --text-muted: #71717a;
+        --text-heading: #ffffff;
+        --border-color: #27272a;
+        --green: #22c55e;
+        --amber: #f59e0b;
+        --red: #ef4444;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -22,6 +32,7 @@
       font-family: 'Inter', -apple-system, sans-serif;
       font-size: 14px;
       padding: 24px;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* ── Header ── */
@@ -32,7 +43,7 @@
       margin-bottom: 24px;
       flex-wrap: wrap;
     }
-    .header h1 { font-size: 18px; font-weight: 700; color: var(--text-main); }
+    .header h1 { font-size: 18px; font-weight: 700; color: var(--text-heading); }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -42,24 +53,34 @@
       font-weight: 700;
       text-transform: uppercase;
     }
-    .badge-worker { background: #fee2e2; color: var(--primary-color); }
-    .badge-stale  { background: #fef3c7; color: #d97706; }
-    .agent-key { font-family: monospace; font-size: 12px; color: var(--text-muted); }
+    .badge-worker { background: var(--primary-subtle); color: var(--primary-color); }
+    .badge-stale  { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+    .agent-key { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); }
     .updated { margin-left: auto; font-size: 12px; color: var(--text-muted); }
 
     /* ── Summary cards ── */
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
-    .card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.3s;
+    }
+    .card:hover {
+      border-color: rgba(0, 212, 170, 0.3);
+      box-shadow: 0 0 20px var(--primary-glow);
+    }
     .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
-    .card-value { font-size: 28px; font-weight: 800; }
+    .card-value { font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
     .card-value.small { font-size: 16px; }
     .tx { color: var(--primary-color); }
-    .rx { color: #2563eb; }
+    .rx { color: var(--secondary-color); }
 
     /* ── Status ── */
     .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-    .dot-online { background: #10b981; box-shadow: 0 0 4px #10b981; }
-    .dot-stale  { background: #f59e0b; }
+    .dot-online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-stale  { background: var(--amber); }
 
     /* ── CTA Section ── */
     .cta-container {
@@ -69,19 +90,30 @@
       justify-content: center;
       text-align: center;
       padding: 100px 20px;
-      background: white;
+      background: var(--bg-card);
       border: 1px dashed var(--border-color);
       border-radius: 20px;
       margin-top: 20px;
     }
-    .cta-title { font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-bottom: 1rem; }
+    .cta-title { font-size: 1.5rem; font-weight: 800; color: var(--text-heading); margin-bottom: 1rem; }
     .cta-desc { font-size: 1rem; color: var(--text-muted); margin-bottom: 2rem; max-width: 500px; line-height: 1.6; }
-    .btn-primary { background-color: var(--primary-color); color: white; padding: 0.75rem 2rem; border-radius: 0.5rem; font-weight: 700; text-decoration: none; transition: 0.2s; }
-    .btn-primary:hover { background-color: var(--primary-hover); transform: scale(1.05); }
+    .btn-primary {
+      background-color: var(--primary-color);
+      color: #0a0a0f;
+      padding: 0.75rem 2rem;
+      border-radius: 0.5rem;
+      font-weight: 700;
+      text-decoration: none;
+      transition: 0.2s;
+      border: none;
+      cursor: pointer;
+      font-size: 0.95rem;
+    }
+    .btn-primary:hover { background-color: var(--primary-hover); box-shadow: 0 0 20px rgba(0,212,170,0.3); }
 
     /* ── Waiting ── */
     .waiting { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted); }
-    .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
+    .spinner { width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     #main-content { display: none; }
@@ -93,7 +125,7 @@
   <div th:if="${!isWorker}" class="cta-container">
     <div class="cta-title">Become a PeerCaaS Worker</div>
     <p class="cta-desc">
-      Contribute your idle computing resources to the network and earn rewards. 
+      Contribute your idle computing resources to the network and earn rewards.
       Join thousands of others in building a decentralized cloud.
     </p>
     <a href="#" class="btn-primary" onclick="alert('Join logic to be implemented!')">Join as Worker</a>
@@ -105,13 +137,13 @@
       <span class="badge badge-worker">Worker Agent</span>
       <span class="agent-key" th:text="${key}">key</span>
       <span id="stale-badge" class="badge badge-stale" style="display:none">STALE</span>
-      <span class="updated" id="updated-time">Connecting…</span>
+      <span class="updated" id="updated-time">Connecting...</span>
     </div>
 
     <div id="waiting-area">
       <div class="waiting">
         <div class="spinner"></div>
-        <div class="waiting-title" style="font-weight: 600;">Waiting for agent reporting…</div>
+        <div class="waiting-title" style="font-weight: 600;">Waiting for agent reporting...</div>
         <div class="waiting-sub">Your worker will appear here once metrics start flowing.</div>
       </div>
     </div>
@@ -119,28 +151,28 @@
     <div id="main-content">
       <div class="cards">
         <div class="card">
-          <div class="card-label">↑ Total Tx</div>
-          <div class="card-value tx" id="w-tx">—</div>
+          <div class="card-label">Total Tx</div>
+          <div class="card-value tx" id="w-tx">&mdash;</div>
         </div>
         <div class="card">
-          <div class="card-label">↓ Total Rx</div>
-          <div class="card-value rx" id="s-rx">—</div> <!-- ID was s-rx in previous version, fixed below -->
+          <div class="card-label">Total Rx</div>
+          <div class="card-value rx" id="s-rx">&mdash;</div>
         </div>
         <div class="card">
           <div class="card-label">Status</div>
-          <div class="card-value" id="w-status" style="font-size: 22px;">—</div>
+          <div class="card-value" id="w-status" style="font-size: 22px;">&mdash;</div>
         </div>
         <div class="card">
           <div class="card-label">Active Containers</div>
-          <div class="card-value" id="w-containers">—</div>
+          <div class="card-value" id="w-containers">&mdash;</div>
         </div>
         <div class="card">
           <div class="card-label">Connections</div>
-          <div class="card-value" id="w-conns">—</div>
+          <div class="card-value" id="w-conns">&mdash;</div>
         </div>
         <div class="card">
           <div class="card-label">Last Heartbeat</div>
-          <div class="card-value small" id="w-reported">—</div>
+          <div class="card-value small" id="w-reported">&mdash;</div>
         </div>
       </div>
     </div>
@@ -179,12 +211,12 @@
       const rxEl = document.getElementById('w-rx') || document.getElementById('s-rx');
       if (txEl) txEl.textContent = fmtBytes(totalTx);
       if (rxEl) rxEl.textContent = fmtBytes(totalRx);
-      
+
       const contEl = document.getElementById('w-containers');
       const connEl = document.getElementById('w-conns');
       const repEl = document.getElementById('w-reported');
       const upEl = document.getElementById('updated-time');
-      
+
       if (contEl) contEl.textContent = containers.length;
       if (connEl) connEl.textContent = totalConns;
       if (repEl) repEl.textContent = snap.reportedAt + ' UTC';
@@ -194,10 +226,10 @@
       if (statusEl) {
           if (stale) {
             statusEl.innerHTML = '<span class="status-dot dot-stale"></span>Stale';
-            statusEl.style.color = '#d97706';
+            statusEl.style.color = 'var(--amber)';
           } else {
             statusEl.innerHTML = '<span class="status-dot dot-online"></span>Online';
-            statusEl.style.color = '#10b981';
+            statusEl.style.color = 'var(--green)';
           }
       }
     }

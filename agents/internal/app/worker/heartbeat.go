@@ -40,11 +40,12 @@ type HeartbeatManager struct {
 	repo      *metrics.MetricRepository
 	shipper   *metrics.MetricShipper
 	dockerCli *client.Client
+	store     *ContainerStore
 }
 
 // NewHeartbeatManager creates a new reporting instance with SQLite and VM shipping.
-func NewHeartbeatManager(mq core.Broker, id, queue string, t *metrics.TrafficStore, l *metrics.LatencyMeasurer, c *metrics.Collector, repo *metrics.MetricRepository, shipper *metrics.MetricShipper, dockerCli *client.Client) *HeartbeatManager {
-	return &HeartbeatManager{mq, id, queue, t, l, c, repo, shipper, dockerCli}
+func NewHeartbeatManager(mq core.Broker, id, queue string, t *metrics.TrafficStore, l *metrics.LatencyMeasurer, c *metrics.Collector, repo *metrics.MetricRepository, shipper *metrics.MetricShipper, dockerCli *client.Client, store *ContainerStore) *HeartbeatManager {
+	return &HeartbeatManager{mq, id, queue, t, l, c, repo, shipper, dockerCli, store}
 }
 
 // Start initiates the reporting and shipping loops.
@@ -96,10 +97,17 @@ func (h *HeartbeatManager) report(ctx context.Context) {
 				rx = t.Rx()
 			}
 
+			// Get clientKey from store if available
+			clientKey := ""
+			if info, ok := h.store.Get(c.ID); ok {
+				clientKey = info.ClientKey
+			}
+
 			// Save to local SQLite for time-series / billing
 			m := metrics.ContainerMetric{
 				WorkerID:    h.workerID,
 				ContainerID: c.ID,
+				ClientKey:   clientKey,
 				CPUUsage:    cStats.CPUUsage,
 				MemUsageMb:  cStats.MemUsageMb,
 				NetTxBytes:  tx,
@@ -129,7 +137,6 @@ func (h *HeartbeatManager) report(ctx context.Context) {
 
 	data, _ := json.Marshal(payload)
 	
-	// RMQ Publish (Latency measurement removed from here as per new strategy)
 	if err := h.mq.Publish(ctx, h.queue, data); err != nil {
 		log.Printf("[Heartbeat] Failed to publish metrics to RMQ: %v", err)
 	}

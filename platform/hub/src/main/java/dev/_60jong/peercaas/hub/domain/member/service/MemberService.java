@@ -45,6 +45,18 @@ public class MemberService {
         return member;
     }
 
+    @Transactional
+    public void updateMember(Long memberId, String nickname) {
+        Member member = findById(memberId);
+        member.updateProfile(nickname);
+    }
+
+    @Transactional
+    public void resetClientKey(Long memberId) {
+        Member member = findById(memberId);
+        member.resetClientKey();
+    }
+
     public Member findByEmail(String email) {
         return memberRepository.findByEmail(email)
                 .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "존재하지 않는 Email입니다."));

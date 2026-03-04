@@ -26,7 +26,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	metrics.StartReporter(ctx, cfg.HubURL, "client", cfg.ContainerID, traffic)
+	metrics.StartReporter(ctx, cfg.HubURL, "client", cfg.ClientKey, traffic)
 
 	log.Println("=== PeerCaaS Client Agent ===")
 	log.Printf("Container: %s | Hub: %s", cfg.ContainerID, cfg.HubURL)

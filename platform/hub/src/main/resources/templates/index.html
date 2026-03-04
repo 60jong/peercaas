@@ -5,62 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PeerCaaS | Decentralized Container Platform</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
-    <style>
-        .hamburger-btn {
-            background: none; border: none; cursor: pointer;
-            padding: 0.3rem 0.45rem; color: var(--text-main);
-            font-size: 1.15rem; line-height: 1;
-            border-radius: 0.4rem; transition: background 0.15s; flex-shrink: 0;
-        }
-        .hamburger-btn:hover { background: var(--bg-color); }
-
-        .sidebar-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.32);
-            z-index: 800; opacity: 0; pointer-events: none; transition: opacity 0.22s;
-        }
-        .sidebar-overlay.show { opacity: 1; pointer-events: all; }
-
-        .sidebar {
-            position: fixed; top: 0; left: 0; height: 100%; width: 260px;
-            background: white; z-index: 900;
-            transform: translateX(-100%);
-            transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
-            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
-            display: flex; flex-direction: column;
-        }
-        .sidebar.show { transform: translateX(0); }
-
-        .sidebar-head {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color);
-        }
-        .sidebar-logo { font-weight: 800; font-size: 1rem; color: var(--primary-color); text-decoration: none; letter-spacing: -0.02em; }
-        .sidebar-close-btn {
-            background: none; border: none; cursor: pointer;
-            color: var(--text-muted); font-size: 1rem; padding: 0.2rem 0.35rem;
-            border-radius: 0.35rem; transition: background 0.1s;
-        }
-        .sidebar-close-btn:hover { background: var(--bg-color); }
-
-        .sidebar-nav {
-            flex: 1; padding: 0.5rem 0; overflow-y: auto;
-            display: flex; flex-direction: column;
-        }
-        .sidebar-section {
-            font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.08em; color: var(--text-muted);
-            padding: 0.6rem 1.25rem 0.2rem;
-        }
-        .sidebar-link {
-            display: flex; align-items: center; gap: 0.7rem;
-            padding: 0.65rem 1.25rem; font-size: 0.875rem;
-            color: var(--text-main); text-decoration: none; transition: background 0.1s;
-        }
-        .sidebar-link:hover { background: var(--bg-color); }
-        .sidebar-link.active { background: #fef2f2; color: var(--primary-color); font-weight: 600; }
-        .sidebar-link svg { flex-shrink: 0; opacity: 0.55; }
-        .sidebar-link.active svg { opacity: 1; }
-    </style>
 </head>
 <body>
     <!-- Sidebar -->
@@ -71,11 +15,6 @@
             <button class="sidebar-close-btn" id="sidebar-close">✕</button>
         </div>
         <nav class="sidebar-nav">
-            <div class="sidebar-section">Services</div>
-            <a href="/deploy" class="sidebar-link" data-path="/deploy">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-                Deploy
-            </a>
             <a href="/instances" class="sidebar-link" data-path="/instances">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                 Instances
@@ -84,15 +23,19 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                 Dashboard
             </a>
+            <a href="/deploy" class="sidebar-link" data-path="/deploy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
         </nav>
     </div>
 
     <nav>
         <div style="display:flex;align-items:center;gap:0.25rem;">
-            <button class="hamburger-btn" id="hamburger-btn" aria-label="메뉴">☰</button>
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu">&#9776;</button>
             <a href="/" class="logo">PEERCAAS</a>
         </div>
-        
+
         <!-- Search Bar -->
         <div class="search-container">
             <input type="text" class="search-input" id="image-search" placeholder="Search Docker images (e.g. nginx, redis)...">
@@ -114,25 +57,28 @@
                 <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
                 <div class="dropdown-menu" id="profile-dropdown">
                     <div class="dropdown-header">
-                        <div class="dropdown-nickname" id="user-nickname">User Nickname</div>
+                        <div class="dropdown-nickname" id="user-nickname"></div>
                     </div>
                     <a href="/instances" class="dropdown-item">Instances</a>
                     <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="/dashboard/settings" class="dropdown-item">Settings</a>
                     <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
                 </div>
             </div>
         </div>
     </nav>
 
-    <section class="hero">
-        <h1>Decentralized Cloud, Reimagined.</h1>
+    <!-- Hero -->
+    <section class="hero grid-bg">
+        <h1><span class="gradient-text">Decentralized Cloud,</span><br>Reimagined.</h1>
         <p>A high-performance P2P container orchestration platform. Deploy globally with minimal latency using our distributed worker network.</p>
-        <div style="display: flex; gap: 1rem; justify-content: center;">
-            <a id="start-deploy-btn" href="/signin?redirect=/deploy" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1.1rem;">Start Deploying</a>
-            <a href="#" class="btn btn-outline" style="padding: 0.75rem 2rem; font-size: 1.1rem;">Explore Network</a>
+        <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+            <a id="start-deploy-btn" href="/signin?redirect=/deploy" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 1.05rem;">Start Deploying</a>
+            <a href="#" class="btn btn-outline" style="padding: 0.75rem 2rem; font-size: 1.05rem;">Explore Network</a>
         </div>
     </section>
 
+    <!-- Stats -->
     <section class="stats-grid">
         <div class="stat-card">
             <div class="stat-value" th:text="${totalWorkers}">0</div>
@@ -152,8 +98,60 @@
         </div>
     </section>
 
+    <!-- Features -->
+    <section class="features">
+        <h2 class="section-title">Why PeerCaaS?</h2>
+        <p class="section-subtitle">Leverage the power of decentralized infrastructure for faster, cheaper, and more resilient deployments.</p>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" fill="none" stroke="#00d4aa" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4m-8.66-15l3.46 2m10.4 6l3.46 2M1 12h4m14 0h4m-15.66 8.66l2-3.46m6-10.4l2-3.46M4.34 4.34l3.46 2m8.4 8.4l3.46 2"/></svg>
+                </div>
+                <h3>P2P Container Network</h3>
+                <p>Direct peer-to-peer connections between containers using WebRTC and relay fallback for maximum throughput and resilience.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" fill="none" stroke="#6366f1" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                </div>
+                <h3>Earn Rewards</h3>
+                <p>Contribute idle computing resources as a worker node and earn rewards. The more you share, the more you earn.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg width="24" height="24" fill="none" stroke="#00d4aa" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
+                <h3>Ultra-Low Latency</h3>
+                <p>Smart matchmaking algorithm places your containers on the nearest available worker, minimizing network hops and latency.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- How it Works -->
+    <section class="how-it-works">
+        <h2 class="section-title">How It Works</h2>
+        <p class="section-subtitle">Get your containers running in three simple steps.</p>
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h3>Deploy</h3>
+                <p>Choose your Docker image and configure ports, env variables. Use our form or paste a <span style="font-family:'JetBrains Mono',monospace;color:var(--primary-color);">docker run</span> command.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h3>Match</h3>
+                <p>Our matchmaking engine finds the optimal worker node based on proximity, capacity, and network conditions.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h3>Connect</h3>
+                <p>Your container goes live with a direct P2P tunnel. Monitor traffic, manage instances, and scale on demand.</p>
+            </div>
+        </div>
+    </section>
+
     <footer>
-        <p>&copy; 2024 PeerCaaS Project. Powered by P2P Technology.</p>
+        <p style="color:var(--text-muted);">&copy; 2025 PeerCaaS Project. Powered by P2P Technology.</p>
     </footer>
 
     <script>
@@ -202,7 +200,7 @@
                     const response = await fetch('/api/v1/member/me', {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
-                    
+
                     if (response.ok) {
                         const result = await response.json();
                         const user = result.data;

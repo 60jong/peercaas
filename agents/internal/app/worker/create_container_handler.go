@@ -136,15 +136,22 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 		portBindings[key] = m.HostPort
 	}
 
+	// Extract ClientKey from Env for metrics aggregation
+	clientKey := ""
+	if v, ok := p.Env["PEERCAAS_CLIENT_KEY"]; ok {
+		clientKey = v
+	}
+
 	// Store에 컨테이너 정보 등록
 	if h.Store != nil {
 		h.Store.Put(&ContainerInfo{
 			ContainerID:  containerID,
 			Name:         actualName,
+			ClientKey:    clientKey,
 			PortBindings: portBindings,
 			TraceID:      traceId,
 		})
-		log.Printf("   - Container registered in store: %s (%s)", containerID, actualName)
+		log.Printf("   - Container registered in store: %s (%s, clientKey: %s)", containerID, actualName, clientKey)
 	}
 
 	response := DeploymentResultPayload{

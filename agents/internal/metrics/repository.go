@@ -14,6 +14,7 @@ type ContainerMetric struct {
 	ID          int64
 	WorkerID    string
 	ContainerID string
+	ClientKey   string
 	CPUUsage    float64
 	MemUsageMb  int64
 	NetTxBytes  int64
@@ -39,6 +40,7 @@ func NewMetricRepository(dbPath string) (*MetricRepository, error) {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		worker_id TEXT,
 		container_id TEXT,
+		client_key TEXT,
 		cpu_usage REAL,
 		mem_usage_mb INTEGER,
 		net_tx_bytes INTEGER,
@@ -59,17 +61,17 @@ func NewMetricRepository(dbPath string) (*MetricRepository, error) {
 // Save records a new metric entry.
 func (r *MetricRepository) Save(ctx context.Context, m ContainerMetric) error {
 	query := `
-	INSERT INTO container_metrics (worker_id, container_id, cpu_usage, mem_usage_mb, net_tx_bytes, net_rx_bytes, timestamp)
-	VALUES (?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO container_metrics (worker_id, container_id, client_key, cpu_usage, mem_usage_mb, net_tx_bytes, net_rx_bytes, timestamp)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query, m.WorkerID, m.ContainerID, m.CPUUsage, m.MemUsageMb, m.NetTxBytes, m.NetRxBytes, m.Timestamp)
+	_, err := r.db.ExecContext(ctx, query, m.WorkerID, m.ContainerID, m.ClientKey, m.CPUUsage, m.MemUsageMb, m.NetTxBytes, m.NetRxBytes, m.Timestamp)
 	return err
 }
 
 // GetPending retrieves unsent metrics for shipping.
 func (r *MetricRepository) GetPending(ctx context.Context, limit int) ([]ContainerMetric, error) {
 	query := `
-	SELECT id, worker_id, container_id, cpu_usage, mem_usage_mb, net_tx_bytes, net_rx_bytes, timestamp 
+	SELECT id, worker_id, container_id, client_key, cpu_usage, mem_usage_mb, net_tx_bytes, net_rx_bytes, timestamp 
 	FROM container_metrics 
 	WHERE sent = 0 
 	ORDER BY timestamp ASC 
@@ -84,7 +86,7 @@ func (r *MetricRepository) GetPending(ctx context.Context, limit int) ([]Contain
 	var metrics []ContainerMetric
 	for rows.Next() {
 		var m ContainerMetric
-		if err := rows.Scan(&m.ID, &m.WorkerID, &m.ContainerID, &m.CPUUsage, &m.MemUsageMb, &m.NetTxBytes, &m.NetRxBytes, &m.Timestamp); err != nil {
+		if err := rows.Scan(&m.ID, &m.WorkerID, &m.ContainerID, &m.ClientKey, &m.CPUUsage, &m.MemUsageMb, &m.NetTxBytes, &m.NetRxBytes, &m.Timestamp); err != nil {
 			return nil, err
 		}
 		metrics = append(metrics, m)

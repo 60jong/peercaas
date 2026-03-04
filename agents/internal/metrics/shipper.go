@@ -38,8 +38,8 @@ func (s *MetricShipper) ShipBatch(ctx context.Context, metrics []ContainerMetric
 	var buf bytes.Buffer
 	for _, m := range metrics {
 		// Influx Line Protocol: measurement,tags fields timestamp
-		line := fmt.Sprintf("container_usage,worker_id=%s,container_id=%s cpu_usage=%.2f,mem_usage_mb=%d,net_tx_bytes=%d,net_rx_bytes=%d %d\n",
-			m.WorkerID, m.ContainerID, m.CPUUsage, m.MemUsageMb, m.NetTxBytes, m.NetRxBytes, m.Timestamp)
+		line := fmt.Sprintf("container_usage,worker_id=%s,container_id=%s,client_key=%s cpu_usage=%.2f,mem_usage_mb=%d,net_tx_bytes=%d,net_rx_bytes=%d %d\n",
+			m.WorkerID, m.ContainerID, m.ClientKey, m.CPUUsage, m.MemUsageMb, m.NetTxBytes, m.NetRxBytes, m.Timestamp)
 		buf.WriteString(line)
 	}
 

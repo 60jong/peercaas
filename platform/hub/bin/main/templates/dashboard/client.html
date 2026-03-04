@@ -3,14 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PeerCaaS — Client Dashboard</title>
+  <title>PeerCaaS - Client Dashboard</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
     :root {
-        --primary-color: #b91c1c;
-        --bg-color: #f8fafc;
-        --border-color: #e2e8f0;
-        --text-main: #1e293b;
-        --text-muted: #64748b;
+        --bg-color: #0a0a0f;
+        --bg-card: #111118;
+        --bg-elevated: #1a1a24;
+        --primary-color: #00d4aa;
+        --primary-subtle: rgba(0, 212, 170, 0.1);
+        --primary-glow: rgba(0, 212, 170, 0.15);
+        --secondary-color: #6366f1;
+        --text-main: #e4e4e7;
+        --text-muted: #71717a;
+        --text-heading: #ffffff;
+        --border-color: #27272a;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -20,53 +28,162 @@
       font-family: 'Inter', -apple-system, sans-serif;
       font-size: 14px;
       padding: 24px;
+      -webkit-font-smoothing: antialiased;
     }
 
     .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-    .badge { padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: #dbeafe; color: #1e40af; }
-    .agent-key { font-family: monospace; font-size: 12px; color: var(--text-muted); }
+    .badge { padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; background: rgba(99,102,241,0.15); color: var(--secondary-color); }
+    .agent-key { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); }
 
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px; }
-    .card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.3s;
+    }
+    .card:hover {
+      border-color: rgba(0, 212, 170, 0.3);
+      box-shadow: 0 0 20px var(--primary-glow);
+    }
     .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
-    .card-value { font-size: 28px; font-weight: 800; }
+    .card-value { font-size: 28px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
     .tx { color: var(--primary-color); }
-    .rx { color: #2563eb; }
+    .rx { color: var(--secondary-color); }
 
-    .table-wrap { background: white; border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .table-wrap {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+    }
     table { width: 100%; border-collapse: collapse; text-align: left; }
-    th { padding: 12px 16px; background: #f8fafc; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
-    td { padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-size: 13px; }
-    
+    th { padding: 12px 16px; background: var(--bg-elevated); font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border-color); font-size: 13px; color: var(--text-main); }
+
     .transport-badge { padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }
-    .t-webrtc { background: #dbeafe; color: #1e40af; }
-    .t-relay { background: #ffedd5; color: #9a3412; }
+    .t-webrtc { background: rgba(99,102,241,0.15); color: var(--secondary-color); }
+    .t-relay { background: rgba(245,158,11,0.15); color: #f59e0b; }
 
     .waiting { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 0; color: var(--text-muted); }
-    .spinner { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
+    .spinner { width: 32px; height: 32px; border: 3px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+  <style>
+    /* ... (keep existing styles) */
+    .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+    .tab { padding: 8px 16px; border-radius: 6px; cursor: pointer; color: var(--text-muted); font-weight: 600; transition: 0.2s; }
+    .tab.active { background: var(--bg-elevated); color: var(--primary-color); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .settings-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; max-width: 600px; }
+    .key-display { background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--primary-color); display: flex; align-items: center; justify-content: space-between; margin: 16px 0; }
+    .copy-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; border-radius: 4px; }
+    .copy-btn:hover { background: var(--bg-elevated); color: var(--text-main); }
+    
+    .danger-zone { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color); }
+    .danger-title { color: var(--red); font-weight: 700; margin-bottom: 8px; }
+    .danger-desc { color: var(--text-muted); font-size: 13px; margin-bottom: 16px; }
+
+    /* Fix existing styles integration */
+    .header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+    /* ... (rest of styles) */
   </style>
 </head>
 <body>
   <div class="header">
     <span class="badge">Client Agent</span>
-    <span class="agent-key" th:text="${key}">key</span>
-    <span id="updated-time" style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Connecting…</span>
+    <span id="updated-time" style="margin-left: auto; font-size: 12px; color: var(--text-muted);">Connecting...</span>
   </div>
 
-  <div class="cards">
-    <div class="card"><div class="card-label">↑ Total Tx</div><div class="card-value tx" id="s-tx">—</div></div>
-    <div class="card"><div class="card-label">↓ Total Rx</div><div class="card-value rx" id="s-rx">—</div></div>
-    <div class="card"><div class="card-label">Containers</div><div class="card-value" id="s-containers">—</div></div>
-    <div class="card"><div class="card-label">Connections</div><div class="card-value" id="s-conns">—</div></div>
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="settings">Settings</div>
   </div>
 
-  <div id="table-area">
-    <div class="waiting"><div class="spinner"></div><div style="font-weight: 600;">Connecting to Client Agent...</div></div>
+  <div id="overview-tab" class="tab-content active">
+    <div class="cards">
+      <div class="card"><div class="card-label">Total Tx</div><div class="card-value tx" id="s-tx">&mdash;</div></div>
+      <div class="card"><div class="card-label">Total Rx</div><div class="card-value rx" id="s-rx">&mdash;</div></div>
+      <div class="card"><div class="card-label">Containers</div><div class="card-value" id="s-containers">&mdash;</div></div>
+      <div class="card"><div class="card-label">Connections</div><div class="card-value" id="s-conns">&mdash;</div></div>
+    </div>
+
+    <div id="table-area">
+      <div class="waiting"><div class="spinner"></div><div style="font-weight: 600;">Connecting to Client Agent...</div></div>
+    </div>
+  </div>
+
+  <div id="settings-tab" class="tab-content">
+    <div class="settings-card">
+      <h3 style="margin-bottom: 8px;">Client Agent Key</h3>
+      <p style="color: var(--text-muted); font-size: 13px;">Use this key as <code style="color: var(--primary-color);">PEERCAAS_CLIENT_KEY</code> environment variable when running your client-agent.</p>
+      
+      <div class="key-display">
+        <span id="client-key-value">Loading...</span>
+        <button class="copy-btn" id="copy-key-btn" title="Copy to clipboard">
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+        </button>
+      </div>
+
+      <div class="danger-zone">
+        <div class="danger-title">Regenerate Key</div>
+        <p class="danger-desc">Regenerating the key will immediately invalidate the current one. Existing client-agents using the old key will no longer be able to report metrics.</p>
+        <button class="btn btn-outline" id="regen-key-btn" style="color: var(--red); border-color: rgba(239,68,68,0.3);">Regenerate Key</button>
+      </div>
+    </div>
   </div>
 
   <script th:inline="javascript">
-    const AGENT_KEY = [[${key}]];
+    let clientKey = '';
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab, .tab-content').forEach(el => el.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(tab.dataset.tab + '-tab').classList.add('active');
+        });
+    });
+
+    async function loadProfile() {
+        try {
+            const token = localStorage.getItem('accessToken');
+            const res = await fetch('/api/v1/member/me', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const result = await res.json();
+            clientKey = result.data.clientKey;
+            document.getElementById('client-key-value').textContent = clientKey;
+        } catch (e) {}
+    }
+
+    document.getElementById('regen-key-btn').addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to regenerate your client key?')) return;
+        
+        try {
+            const token = localStorage.getItem('accessToken');
+            const res = await fetch('/api/v1/member/me/client-key', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const result = await res.json();
+            clientKey = result.data;
+            document.getElementById('client-key-value').textContent = clientKey;
+            alert('Key regenerated successfully.');
+        } catch (e) {
+            alert('Failed to regenerate key.');
+        }
+    });
+
+    document.getElementById('copy-key-btn').addEventListener('click', () => {
+        const val = document.getElementById('client-key-value').textContent;
+        navigator.clipboard.writeText(val);
+        alert('Key copied to clipboard.');
+    });
 
     function fmtBytes(n) {
       n = Number(n) || 0;
@@ -89,33 +206,36 @@
 
       const area = document.getElementById('table-area');
       if (containers.length === 0) {
-        area.innerHTML = '<div class="waiting"><div>No active traffic.</div></div>';
+        area.innerHTML = '<div class="waiting"><div>No active traffic reported.</div></div>';
         return;
       }
 
       const rows = containers.map(c => `
         <tr>
-          <td style="font-family: monospace;">${c.containerId}</td>
+          <td style="font-family: 'JetBrains Mono', monospace;">${c.containerId}</td>
           <td><span class="transport-badge ${c.transport === 'webrtc' ? 't-webrtc' : 't-relay'}">${c.transport.toUpperCase()}</span></td>
           <td class="tx">${fmtBytes(c.txBytes)}</td>
           <td class="rx">${fmtBytes(c.rxBytes)}</td>
           <td>${c.connCount}</td>
         </tr>`).join('');
 
-      area.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Container ID</th><th>Transport</th><th>↑ Tx</th><th>↓ Rx</th><th>Conns</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      area.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Container ID</th><th>Transport</th><th>Tx</th><th>Rx</th><th>Conns</th></tr></thead><tbody>${rows}</tbody></table></div>`;
     }
 
     async function refresh() {
+      if (!clientKey) return;
       try {
-        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(AGENT_KEY)}`);
+        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(clientKey)}`);
         if (res.status === 404) return;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         render(await res.json());
       } catch (e) {}
     }
 
-    refresh();
-    setInterval(refresh, 2000);
+    loadProfile().then(() => {
+        refresh();
+        setInterval(refresh, 5000);
+    });
   </script>
 </body>
 </html>

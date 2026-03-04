@@ -47,4 +47,9 @@ public class DashboardViewController {
         
         return "dashboard/worker";
     }
+
+    @GetMapping("/settings")
+    public String settingsPage() {
+        return "settings";
+    }
 }

@@ -6,19 +6,19 @@
     <title>Dashboard | PeerCaaS</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
     <style>
-        body { display: flex; height: 100vh; overflow: hidden; background-color: #f1f5f9; }
-        
-        /* Sidebar */
-        .sidebar {
+        body { display: flex; height: 100vh; overflow: hidden; background-color: var(--bg-color); }
+
+        /* Dashboard Sidebar (Internal) */
+        .dashboard-sidebar {
             width: 260px;
-            background-color: white;
+            background-color: var(--bg-card);
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             padding: 1.5rem 0;
             flex-shrink: 0;
         }
-        
+
         .sidebar-logo {
             padding: 0 1.5rem 2rem;
             font-size: 1.25rem;
@@ -28,7 +28,7 @@
         }
 
         .sidebar-menu { list-style: none; padding: 0; margin: 0; flex: 1; }
-        
+
         .menu-item {
             padding: 0.75rem 1.5rem;
             display: flex;
@@ -42,9 +42,9 @@
             border-left: 4px solid transparent;
         }
 
-        .menu-item:hover { background-color: #f8fafc; color: var(--text-main); }
+        .menu-item:hover { background-color: var(--bg-elevated); color: var(--text-main); }
         .menu-item.active {
-            background-color: #fef2f2;
+            background-color: var(--primary-subtle);
             color: var(--primary-color);
             border-left-color: var(--primary-color);
         }
@@ -53,22 +53,49 @@
 
         /* Content Area */
         .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        
+
         .top-bar {
             height: 64px;
-            background: white;
+            background: var(--bg-card);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             justify-content: flex-end;
-            padding: 0 2rem;
+            padding: 0 1.5rem;
         }
 
         #content-frame { flex: 1; border: none; width: 100%; height: 100%; }
+
+        /* Global Sidebar Overrides for this page */
+        .sidebar { z-index: 2000; }
+        .sidebar-overlay { z-index: 1900; }
     </style>
 </head>
 <body>
-    <aside class="sidebar">
+    <!-- Global Navigation Sidebar -->
+    <div class="sidebar-overlay" id="global-sidebar-overlay"></div>
+    <div class="sidebar" id="global-sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="global-sidebar-close">&#10005;</button>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/instances" class="sidebar-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link active">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+            <a href="/deploy" class="sidebar-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+        </nav>
+    </div>
+
+    <aside class="dashboard-sidebar">
         <a href="/" class="sidebar-logo">PEERCAAS</a>
         <div class="sidebar-menu">
             <a href="javascript:void(0)" class="menu-item active" onclick="loadContent('/dashboard/worker', this)">
@@ -91,16 +118,38 @@
 
     <main class="main-content">
         <header class="top-bar">
-            <span id="header-title" style="font-weight: 700; color: var(--text-main); margin-right: auto; font-size: 1.1rem;">Worker Overview</span>
+            <button class="hamburger-btn" id="global-hamburger-btn" style="margin-right: 0.75rem; margin-left: -0.5rem;">&#9776;</button>
+            <span id="header-title" style="font-weight: 700; color: var(--text-heading); margin-right: auto; font-size: 1.1rem;">Worker Overview</span>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span style="font-size: 0.875rem; color: var(--text-muted);" id="top-nickname">Loading...</span>
-                <img src="https://www.svgrepo.com/show/532362/user.svg" style="width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-color);">
+                <img src="https://www.svgrepo.com/show/532362/user.svg" style="width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-color); filter: invert(0.8);">
             </div>
         </header>
         <iframe id="content-frame" src="/dashboard/worker"></iframe>
     </main>
 
     <script>
+        // Global Sidebar Toggle
+        const globalSidebar = document.getElementById('global-sidebar');
+        const globalSidebarOverlay = document.getElementById('global-sidebar-overlay');
+        const globalHamburgerBtn = document.getElementById('global-hamburger-btn');
+        const globalSidebarClose = document.getElementById('global-sidebar-close');
+
+        function openGlobalSidebar() {
+            globalSidebar.classList.add('show');
+            globalSidebarOverlay.classList.add('show');
+        }
+
+        function closeGlobalSidebar() {
+            globalSidebar.classList.remove('show');
+            globalSidebarOverlay.classList.remove('show');
+        }
+
+        globalHamburgerBtn.addEventListener('click', openGlobalSidebar);
+        globalSidebarClose.addEventListener('click', closeGlobalSidebar);
+        globalSidebarOverlay.addEventListener('click', closeGlobalSidebar);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGlobalSidebar(); });
+
         function loadContent(url, el) {
             document.getElementById('content-frame').src = url;
             document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));

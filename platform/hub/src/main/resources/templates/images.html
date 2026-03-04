@@ -7,59 +7,407 @@
     <link rel="stylesheet" th:href="@{/css/style.css}">
     <style>
         .results-container { padding: 3rem 5%; max-width: 1000px; margin: 0 auto; }
-        .result-card { background: #white; border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.2s; }
-        .result-card:hover { border-color: var(--primary-color); transform: scale(1.01); }
-        .image-name { font-weight: 700; font-size: 1.2rem; color: var(--text-main); }
+        .results-container h2 { color: var(--text-heading); font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; }
+        
+        .result-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .result-card:hover {
+            border-color: rgba(0, 212, 170, 0.3);
+            box-shadow: 0 0 20px rgba(0, 212, 170, 0.1);
+        }
+        .image-name {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: var(--text-heading);
+            font-family: 'JetBrains Mono', monospace;
+        }
         .image-desc { color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem; }
-        .pulls { color: var(--text-muted); font-size: 0.8rem; }
+        .pulls { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.35rem; }
+        .pulls .badge-official {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+            padding: 0.1rem 0.45rem;
+            border-radius: 0.3rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            margin-left: 0.25rem;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            width: 100%;
+            max-width: 500px;
+            padding: 2rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-title { font-size: 1.25rem; font-weight: 700; color: var(--text-heading); margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
+        .form-section { margin-bottom: 1.5rem; }
+        .form-section label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; }
+        .modal-input {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-main);
+            font-size: 0.9rem;
+            outline: none;
+        }
+        .modal-input:focus { border-color: var(--primary-color); }
+        .row { display: flex; gap: 1rem; }
+        .row > div { flex: 1; }
+        .modal-actions { display: flex; gap: 1rem; margin-top: 2rem; }
+        .modal-actions .btn { flex: 1; }
+
+        .env-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .env-row input { flex: 1; min-width: 0; }
     </style>
 </head>
 <body>
+    <!-- Deployment Modal -->
+    <div class="modal-overlay" id="deploy-modal">
+        <div class="modal-card">
+            <div class="modal-title">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy Container
+            </div>
+            
+            <div class="form-section">
+                <label>Target Image</label>
+                <input type="text" id="m-image" class="modal-input" readonly style="opacity: 0.6; cursor: not-allowed;">
+            </div>
+
+            <div class="form-section">
+                <label>Container Name</label>
+                <input type="text" id="m-name" class="modal-input" placeholder="e.g. my-web-app">
+            </div>
+
+            <div class="row form-section">
+                <div>
+                    <label>CPUs</label>
+                    <input type="number" id="m-cpu" class="modal-input" value="0.5" step="0.1" min="0.1">
+                </div>
+                <div>
+                    <label>Memory (MB)</label>
+                    <input type="number" id="m-mem" class="modal-input" value="512" step="128" min="64">
+                </div>
+            </div>
+
+            <div class="row form-section">
+                <div>
+                    <label>Host Port</label>
+                    <input type="number" id="m-hport" class="modal-input" placeholder="8080">
+                </div>
+                <div>
+                    <label>Container Port</label>
+                    <input type="number" id="m-cport" class="modal-input" placeholder="80">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <label>Environment Variables</label>
+                <div id="m-env-list"></div>
+                <button class="btn btn-outline btn-block" style="margin-top: 0.5rem; padding: 0.4rem; font-size: 0.8rem;" onclick="addEnvRow()">+ Add Variable</button>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeDeployModal()">Cancel</button>
+                <button class="btn btn-primary" id="confirm-deploy-btn">Deploy Now</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="sidebar-close">&#10005;</button>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/instances" class="sidebar-link" data-path="/instances">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link" data-path="/dashboard">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+            <a href="/deploy" class="sidebar-link" data-path="/deploy">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+        </nav>
+    </div>
+
     <nav>
-        <a href="/" class="logo">PEERCAAS</a>
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+            <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu">&#9776;</button>
+            <a href="/" class="logo">PEERCAAS</a>
+        </div>
         <div class="search-container">
-            <input type="text" class="search-input" th:value="${query}" id="image-search">
+            <input type="text" class="search-input" th:value="${query}" id="image-search" placeholder="Search Docker images...">
+            <svg class="search-icon" id="search-btn" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="width: 20px; height: 20px; position: absolute; right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; opacity: 0.5;">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
         </div>
         <div class="nav-links">
             <a href="/signin" class="btn btn-outline" id="signin-nav">Sign In</a>
             <div id="profile-section" class="profile-container hidden">
                 <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
+                <div class="dropdown-menu" id="profile-dropdown">
+                    <div class="dropdown-header">
+                        <div class="dropdown-nickname" id="user-nickname"></div>
+                    </div>
+                    <a href="/instances" class="dropdown-item">Instances</a>
+                    <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="/dashboard/settings" class="dropdown-item">Settings</a>
+                    <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
+                </div>
             </div>
         </div>
     </nav>
 
     <div class="results-container">
-        <h2 th:text="'Results for "' + ${query} + '"'">Results for "nginx"</h2>
-        
-        <!-- Mock Data 1 -->
-        <div class="result-card" onclick="location.href='/deploy?image=nginx:latest'">
-            <div>
-                <div class="image-name">nginx</div>
-                <div class="image-desc">Official build of Nginx.</div>
-                <div class="pulls">1B+ Pulls • Official Image</div>
+        <h2 id="search-title" th:text="'Results for &quot;' + ${query} + '&quot;'">Results for "..."</h2>
+        <div id="results-list">
+            <div style="text-align: center; padding: 3rem;">
+                <div class="spinner" style="margin: 0 auto 1rem;"></div>
+                <p style="color: var(--text-muted);">Searching Docker Hub...</p>
             </div>
-            <button class="btn btn-primary">Deploy</button>
-        </div>
-
-        <!-- Mock Data 2 -->
-        <div class="result-card" onclick="location.href='/deploy?image=bitnami/nginx:latest'">
-            <div>
-                <div class="image-name">bitnami/nginx</div>
-                <div class="image-desc">Bitnami Docker Image for Nginx.</div>
-                <div class="pulls">100M+ Pulls</div>
-            </div>
-            <button class="btn btn-primary">Deploy</button>
         </div>
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
+    <script th:inline="javascript">
+        const initialQuery = [[${query}]];
+
+        // ── Search & Render ───────────────────────────────────
+        function formatPulls(n) {
+            if (!n) return '0';
+            if (n >= 1000000000) return (n / 1000000000).toFixed(1) + 'B+';
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M+';
+            if (n >= 1000) return (n / 1000).toFixed(1) + 'K+';
+            return n;
+        }
+
+        async function performSearch(q) {
+            const listEl = document.getElementById('results-list');
+            if (!q) {
+                listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Please enter a search term.</p>';
+                return;
+            }
+
+            document.getElementById('search-title').textContent = `Results for "${q}"`;
+            listEl.innerHTML = `<div style="text-align: center; padding: 3rem;"><div class="spinner" style="margin: 0 auto 1rem;"></div><p style="color: var(--text-muted);">Searching Docker Hub...</p></div>`;
+
+            try {
+                const res = await fetch(`/api/v1/images/search?q=${encodeURIComponent(q)}`);
+                const result = await res.json();
+                let items = result.data?.results || [];
+
+                // Sort: Official > Pulls > Stars
+                items.sort((a, b) => {
+                    if (a.is_official !== b.is_official) return a.is_official ? -1 : 1;
+                    if (a.pull_count !== b.pull_count) return b.pull_count - a.pull_count;
+                    return b.star_count - a.star_count;
+                });
+
+                if (items.length === 0) {
+                    listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No results found for "' + q + '".</p>';
+                    return;
+                }
+
+                listEl.innerHTML = items.map(item => `
+                    <div class="result-card" onclick="openDeployModal('${item.repo_name}:latest')">
+                        <div style="flex: 1; min-width: 0; padding-right: 1rem;">
+                            <div class="image-name">${item.repo_name}</div>
+                            <div class="image-desc" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${item.short_description || 'No description available.'}
+                            </div>
+                            <div class="pulls">
+                                ${formatPulls(item.pull_count)} Pulls
+                                ${item.is_official ? '<span class="badge-official">Official</span>' : ''}
+                                <span style="margin-left: 0.5rem;">★ ${item.star_count || 0}</span>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" style="flex-shrink: 0;" onclick="event.stopPropagation(); openDeployModal('${item.repo_name}:latest')">Deploy</button>
+                    </div>
+                `).join('');
+
+            } catch (e) {
+                listEl.innerHTML = '<p style="color: var(--red); text-align: center;">Failed to fetch results. Please try again.</p>';
+            }
+        }
+
+        // ── Deployment Modal ───────────────────────────────────
+        const deployModal = document.getElementById('deploy-modal');
+        const confirmDeployBtn = document.getElementById('confirm-deploy-btn');
+
+        function openDeployModal(image) {
             const token = localStorage.getItem('accessToken');
-            if (token) {
-                document.getElementById('signin-nav').classList.add('hidden');
-                document.getElementById('profile-section').classList.remove('hidden');
+            if (!token) {
+                alert('Please sign in to deploy containers.');
+                location.href = '/signin?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+                return;
+            }
+            document.getElementById('m-image').value = image;
+            const baseName = image.split(':')[0].split('/').pop();
+            document.getElementById('m-name').value = baseName + '-' + Math.floor(Math.random() * 1000);
+            
+            // Env vars clear
+            document.getElementById('m-env-list').innerHTML = '';
+            addEnvRow();
+
+            deployModal.classList.add('show');
+        }
+
+        function closeDeployModal() {
+            deployModal.classList.remove('show');
+        }
+
+        function addEnvRow() {
+            const div = document.createElement('div');
+            div.className = 'env-row';
+            div.innerHTML = `
+                <input type="text" class="modal-input env-key" placeholder="KEY">
+                <input type="text" class="modal-input env-val" placeholder="VALUE">
+                <button class="btn btn-outline" style="padding: 0 0.5rem;" onclick="this.parentElement.remove()">×</button>
+            `;
+            document.getElementById('m-env-list').appendChild(div);
+        }
+
+        confirmDeployBtn.addEventListener('click', async () => {
+            const image = document.getElementById('m-image').value;
+            const name = document.getElementById('m-name').value;
+            const cpu = parseFloat(document.getElementById('m-cpu').value);
+            const mem = parseInt(document.getElementById('m-mem').value);
+            const hPort = parseInt(document.getElementById('m-hport').value);
+            const cPort = parseInt(document.getElementById('m-cport').value);
+
+            const env = {};
+            document.querySelectorAll('.env-row').forEach(row => {
+                const k = row.querySelector('.env-key').value.trim();
+                const v = row.querySelector('.env-val').value.trim();
+                if (k) env[k] = v;
+            });
+
+            if (!name) return alert('Container name is required.');
+
+            const body = {
+                image,
+                name,
+                resources: { cpu, memoryMb: mem },
+                ports: hPort && cPort ? [{ hostPort: hPort, containerPort: cPort, protocol: 'tcp' }] : [],
+                env,
+                restartPolicy: 'always'
+            };
+
+            confirmDeployBtn.disabled = true;
+            confirmDeployBtn.textContent = 'Deploying...';
+
+            try {
+                const token = localStorage.getItem('accessToken');
+                const res = await fetch('/api/v1/deployment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(body)
+                });
+                const result = await res.json();
+                
+                if (res.ok) {
+                    alert('Deployment started! Redirecting to instances...');
+                    location.href = '/instances';
+                } else {
+                    alert('Deployment failed: ' + (result.message || 'Unknown error'));
+                    confirmDeployBtn.disabled = false;
+                    confirmDeployBtn.textContent = 'Deploy Now';
+                }
+            } catch (e) {
+                alert('Error occurred during deployment.');
+                confirmDeployBtn.disabled = false;
+                confirmDeployBtn.textContent = 'Deploy Now';
             }
         });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('image-search');
+            const searchBtn = document.getElementById('search-btn');
+
+            const handleSearch = () => {
+                const q = searchInput.value.trim();
+                if (q) {
+                    const newUrl = `${window.location.pathname}?q=${encodeURIComponent(q)}`;
+                    window.history.pushState({ path: newUrl }, '', newUrl);
+                    performSearch(q);
+                }
+            };
+
+            searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSearch(); });
+            searchBtn.addEventListener('click', handleSearch);
+
+            const token = localStorage.getItem('accessToken');
+            if (token) {
+                document.getElementById('signin-nav')?.classList.add('hidden');
+                document.getElementById('profile-section')?.classList.remove('hidden');
+            }
+            performSearch(initialQuery);
+        });
+
+        // ── Sidebar ───────────────────────────────────────────
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        document.getElementById('hamburger-btn').addEventListener('click', () => {
+            sidebar.classList.add('show'); sidebarOverlay.classList.add('show');
+        });
+        document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+        sidebarOverlay.addEventListener('click', closeSidebar);
+        document.addEventListener('keydown', e => { 
+            if (e.key === 'Escape') {
+                closeSidebar();
+                closeDeployModal();
+            }
+        });
+        function closeSidebar() { sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show'); }
     </script>
 </body>
 </html>

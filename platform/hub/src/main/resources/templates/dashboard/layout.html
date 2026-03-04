@@ -6,19 +6,19 @@
     <title>Dashboard | PeerCaaS</title>
     <link rel="stylesheet" th:href="@{/css/style.css}">
     <style>
-        body { display: flex; height: 100vh; overflow: hidden; background-color: #f1f5f9; }
-        
-        /* Sidebar */
-        .sidebar {
+        body { display: flex; height: 100vh; overflow: hidden; background-color: var(--bg-color); }
+
+        /* Dashboard Sidebar (Internal) */
+        .dashboard-sidebar {
             width: 260px;
-            background-color: white;
+            background-color: var(--bg-card);
             border-right: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
             padding: 1.5rem 0;
             flex-shrink: 0;
         }
-        
+
         .sidebar-logo {
             padding: 0 1.5rem 2rem;
             font-size: 1.25rem;
@@ -28,7 +28,7 @@
         }
 
         .sidebar-menu { list-style: none; padding: 0; margin: 0; flex: 1; }
-        
+
         .menu-item {
             padding: 0.75rem 1.5rem;
             display: flex;
@@ -42,9 +42,9 @@
             border-left: 4px solid transparent;
         }
 
-        .menu-item:hover { background-color: #f8fafc; color: var(--text-main); }
+        .menu-item:hover { background-color: var(--bg-elevated); color: var(--text-main); }
         .menu-item.active {
-            background-color: #fef2f2;
+            background-color: var(--primary-subtle);
             color: var(--primary-color);
             border-left-color: var(--primary-color);
         }
@@ -53,22 +53,49 @@
 
         /* Content Area */
         .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        
+
         .top-bar {
             height: 64px;
-            background: white;
+            background: var(--bg-card);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             justify-content: flex-end;
-            padding: 0 2rem;
+            padding: 0 1.5rem;
         }
 
         #content-frame { flex: 1; border: none; width: 100%; height: 100%; }
+
+        /* Global Sidebar Overrides for this page */
+        .sidebar { z-index: 2000; }
+        .sidebar-overlay { z-index: 1900; }
     </style>
 </head>
 <body>
-    <aside class="sidebar">
+    <!-- Global Navigation Sidebar -->
+    <div class="sidebar-overlay" id="global-sidebar-overlay"></div>
+    <div class="sidebar" id="global-sidebar">
+        <div class="sidebar-head">
+            <a href="/" class="sidebar-logo">PEERCAAS</a>
+            <button class="sidebar-close-btn" id="global-sidebar-close">&#10005;</button>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/instances" class="sidebar-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                Instances
+            </a>
+            <a href="/dashboard" class="sidebar-link active">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </a>
+            <a href="/deploy" class="sidebar-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy
+            </a>
+        </nav>
+    </div>
+
+    <aside class="dashboard-sidebar">
         <a href="/" class="sidebar-logo">PEERCAAS</a>
         <div class="sidebar-menu">
             <a href="javascript:void(0)" class="menu-item active" onclick="loadContent('/dashboard/worker', this)">
@@ -79,10 +106,6 @@
                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                 Client Overview
             </a>
-            <a href="#" class="menu-item">
-                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                Settings
-            </a>
         </div>
         <div class="sidebar-footer">
             <a href="/" class="btn btn-outline btn-block">Back to Home</a>
@@ -91,26 +114,73 @@
 
     <main class="main-content">
         <header class="top-bar">
-            <span id="header-title" style="font-weight: 700; color: var(--text-main); margin-right: auto; font-size: 1.1rem;">Worker Overview</span>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button class="hamburger-btn" id="global-hamburger-btn" style="margin-right: 0.75rem; margin-left: -0.5rem;">&#9776;</button>
+            <span id="header-title" style="font-weight: 700; color: var(--text-heading); margin-right: auto; font-size: 1.1rem;">Worker Overview</span>
+            <div style="display: flex; align-items: center; gap: 0.5rem; position: relative;">
                 <span style="font-size: 0.875rem; color: var(--text-muted);" id="top-nickname">Loading...</span>
-                <img src="https://www.svgrepo.com/show/532362/user.svg" style="width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-color);">
+                <img src="https://www.svgrepo.com/show/532362/user.svg" id="profile-btn" style="width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border-color); filter: invert(0.8); cursor: pointer;">
+                <div class="dropdown-menu" id="profile-dropdown" style="right: 0; top: calc(100% + 10px);">
+                    <div class="dropdown-header">
+                        <div class="dropdown-nickname" id="drop-nickname"></div>
+                    </div>
+                    <a href="/instances" class="dropdown-item">Instances</a>
+                    <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="javascript:void(0)" class="dropdown-item" onclick="loadContent('/dashboard/settings', null, 'Settings')">Settings</a>
+                    <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
+                </div>
             </div>
         </header>
         <iframe id="content-frame" src="/dashboard/worker"></iframe>
     </main>
 
     <script>
-        function loadContent(url, el) {
+        // Global Sidebar Toggle
+        const globalSidebar = document.getElementById('global-sidebar');
+        const globalSidebarOverlay = document.getElementById('global-sidebar-overlay');
+        const globalHamburgerBtn = document.getElementById('global-hamburger-btn');
+        const globalSidebarClose = document.getElementById('global-sidebar-close');
+
+        function openGlobalSidebar() {
+            globalSidebar.classList.add('show');
+            globalSidebarOverlay.classList.add('show');
+        }
+
+        function closeGlobalSidebar() {
+            globalSidebar.classList.remove('show');
+            globalSidebarOverlay.classList.remove('show');
+        }
+
+        globalHamburgerBtn.addEventListener('click', openGlobalSidebar);
+        globalSidebarClose.addEventListener('click', closeGlobalSidebar);
+        globalSidebarOverlay.addEventListener('click', closeGlobalSidebar);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGlobalSidebar(); });
+
+        function loadContent(url, el, title) {
             document.getElementById('content-frame').src = url;
             document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
-            el.classList.add('active');
-            document.getElementById('header-title').textContent = el.textContent.trim();
+            if (el) el.classList.add('active');
+            document.getElementById('header-title').textContent = title || el.textContent.trim();
+            document.getElementById('profile-dropdown').classList.remove('show');
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             const nick = localStorage.getItem('nickname');
-            if (nick) document.getElementById('top-nickname').textContent = nick;
+            if (nick) {
+                document.getElementById('top-nickname').textContent = nick;
+                document.getElementById('drop-nickname').textContent = nick;
+            }
+
+            document.getElementById('profile-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                document.getElementById('profile-dropdown').classList.toggle('show');
+            });
+            document.addEventListener('click', () => document.getElementById('profile-dropdown').classList.remove('show'));
+            document.getElementById('signout-btn').addEventListener('click', (e) => {
+                e.preventDefault();
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('nickname');
+                location.href = '/';
+            });
         });
     </script>
 </body>

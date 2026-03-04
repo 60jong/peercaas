@@ -10,6 +10,7 @@ import (
 type ContainerInfo struct {
 	ContainerID  string
 	Name         string
+	ClientKey    string
 	PortBindings map[string]int // "3306/tcp" -> 33060
 	TraceID      string
 	PeerConns    []*webrtc.PeerConnection
