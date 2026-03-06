@@ -38,14 +38,14 @@ type ConnectWebRTCHandler struct {
 }
 
 func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
-	traceId := msg.TraceID
+	correlationId := msg.CorrelationID
 
 	var p ConnectWebRTCPayload
 	if err := json.Unmarshal(msg.Payload, &p); err != nil {
 		return fmt.Errorf("invalid CONNECT_WEBRTC payload: %w", err)
 	}
 
-	log.Printf(">> [WEBRTC] TraceID: %s, ContainerID: %s", traceId, p.ContainerID)
+	log.Printf(">> [WEBRTC] CorrelationID: %s, ContainerID: %s", correlationId, p.ContainerID)
 
 	// 1. Store에서 컨테이너 정보 조회 (없으면 Docker inspect로 복구)
 	info, ok := h.Store.Get(p.ContainerID)
@@ -195,7 +195,7 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 
 	replyMsg := core.CommandMessage{
 		CmdType:   "CONNECT_WEBRTC_ANSWER",
-		TraceID:   traceId,
+		CorrelationID:   correlationId,
 		Payload:   payloadBytes,
 		Timestamp: time.Now().Unix(),
 	}

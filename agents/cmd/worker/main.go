@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -16,10 +17,30 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	resetIP := flag.Bool("reset", false, "Reset the registered IP for this worker on the Hub")
+	flag.Parse()
+
 	// Load configuration
 	cfg := config.Load("worker")
 	if cfg.Worker.WorkerID == "" {
 		log.Fatal("CRITICAL: WORKER_ID environment variable is missing")
+	}
+
+	// Initialize and call Hub Init API
+	hubClient := worker.NewHubClient(cfg.Worker.HubURL)
+
+	if *resetIP {
+		log.Printf("Resetting IP for worker [%s] on Hub...", cfg.Worker.WorkerID)
+		if err := hubClient.ResetWorkerIP(cfg.Worker.WorkerID, cfg.Worker.WorkerKey); err != nil {
+			log.Fatalf("CRITICAL: Failed to reset IP on hub: %v", err)
+		}
+		log.Println("Successfully reset IP. Exiting.")
+		return
+	}
+
+	if err := hubClient.InitializeWorker(cfg.Worker.WorkerID, cfg.Worker.WorkerKey); err != nil {
+		log.Fatalf("CRITICAL: Failed to initialize worker with hub: %v", err)
 	}
 
 	// Initialize infrastructure

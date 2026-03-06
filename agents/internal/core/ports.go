@@ -28,7 +28,7 @@ type CommandHandler interface {
 // CommandMessage defines the standard envelope for all internal agent commands.
 type CommandMessage struct {
 	CmdType   string          `json:"cmdType"`
-	TraceID   string          `json:"traceId"`
+	CorrelationID   string          `json:"correlationId"`
 	Payload   json.RawMessage `json:"payload"`
 	Timestamp int64           `json:"timestamp"`
 }

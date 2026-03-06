@@ -12,7 +12,7 @@ type ContainerInfo struct {
 	Name         string
 	ClientKey    string
 	PortBindings map[string]int // "3306/tcp" -> 33060
-	TraceID      string
+	CorrelationID      string
 	PeerConns    []*webrtc.PeerConnection
 }
 

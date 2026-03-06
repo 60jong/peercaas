@@ -29,27 +29,27 @@ type CreateContainerHandler struct {
 }
 
 func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
-	traceId := msg.TraceID
+	correlationId := msg.CorrelationID
 
-	log.Printf(">> Processing %s (TraceID: %s, Timestamp: %d)", msg.CmdType, traceId, msg.Timestamp)
+	log.Printf(">> Processing %s (CorrelationID: %s, Timestamp: %d)", msg.CmdType, correlationId, msg.Timestamp)
 
 	var p ContainerPayload
 	if err := json.Unmarshal(msg.Payload, &p); err != nil {
 		return fmt.Errorf("invalid container payload: %w", err)
 	}
 
-	log.Printf(">> [DEPLOY START] TraceID: %s, Worker: %s, Image: %s:%s",
-		traceId, h.WorkerId, p.Image, p.Tag)
+	log.Printf(">> [DEPLOY START] CorrelationID: %s, Worker: %s, Image: %s:%s",
+		correlationId, h.WorkerId, p.Image, p.Tag)
 
 	// 5. 입력 검증
 	if err := h.validatePayload(&p); err != nil {
-		h.sendFailure(traceId, "Invalid Request: "+err.Error())
+		h.sendFailure(correlationId, "Invalid Request: "+err.Error())
 		return err
 	}
 
 	// Context 취소 체크
 	if err := ctx.Err(); err != nil {
-		h.sendFailure(traceId, "Context cancelled before start: "+err.Error())
+		h.sendFailure(correlationId, "Context cancelled before start: "+err.Error())
 		return err
 	}
 
@@ -57,20 +57,20 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 	fullImageName := h.buildFullImageName(p.Registry, p.Image, p.Tag)
 
 	if err := h.pullImage(ctx, fullImageName); err != nil {
-		h.sendFailure(traceId, "Image Pull Failed: "+err.Error())
+		h.sendFailure(correlationId, "Image Pull Failed: "+err.Error())
 		return err
 	}
 
 	// Context 취소 체크
 	if err := ctx.Err(); err != nil {
-		h.sendFailure(traceId, "Context cancelled after image pull: "+err.Error())
+		h.sendFailure(correlationId, "Context cancelled after image pull: "+err.Error())
 		return err
 	}
 
 	// 7. 포트 바인딩 설정
 	exposedPorts, dockerPortBindings, err := h.configurePorts(p.Ports)
 	if err != nil {
-		h.sendFailure(traceId, "Port Config Failed: "+err.Error())
+		h.sendFailure(correlationId, "Port Config Failed: "+err.Error())
 		return err
 	}
 
@@ -94,13 +94,13 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 	// 9. 컨테이너 생성 (이름 충돌 회피 로직 포함)
 	containerID, actualName, err := h.createContainerWithRetry(ctx, p, fullImageName, exposedPorts, hostConfig)
 	if err != nil {
-		h.sendFailure(traceId, "Container Create Failed: "+err.Error())
+		h.sendFailure(correlationId, "Container Create Failed: "+err.Error())
 		return err
 	}
 
 	// Context 취소 체크
 	if err := ctx.Err(); err != nil {
-		h.sendFailure(traceId, "Context cancelled after container create: "+err.Error())
+		h.sendFailure(correlationId, "Context cancelled after container create: "+err.Error())
 		// 생성된 컨테이너 정리
 		_ = h.DockerCli.ContainerRemove(context.Background(), containerID, container.RemoveOptions{Force: true})
 		return err
@@ -108,7 +108,7 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 
 	// 10. 컨테이너 시작
 	if err := h.DockerCli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
-		h.sendFailure(traceId, "Container Start Failed: "+err.Error())
+		h.sendFailure(correlationId, "Container Start Failed: "+err.Error())
 		// 시작 실패 시 생성된 컨테이너 정리
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -118,7 +118,7 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 
 	// 11. 컨테이너 시작 확인 (헬스체크)
 	if err := h.waitForContainerRunning(ctx, containerID); err != nil {
-		h.sendFailure(traceId, "Container Health Check Failed: "+err.Error())
+		h.sendFailure(correlationId, "Container Health Check Failed: "+err.Error())
 		// 헬스체크 실패 시 컨테이너 정리
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -127,8 +127,8 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 	}
 
 	// 12. 성공 응답 전송
-	log.Printf(">> [DEPLOY SUCCESS] TraceID: %s, ContainerID: %s, Name: %s",
-		traceId, containerID, actualName)
+	log.Printf(">> [DEPLOY SUCCESS] CorrelationID: %s, ContainerID: %s, Name: %s",
+		correlationId, containerID, actualName)
 
 	portBindings := make(map[string]int, len(p.Ports))
 	for _, m := range p.Ports {
@@ -149,14 +149,14 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 			Name:         actualName,
 			ClientKey:    clientKey,
 			PortBindings: portBindings,
-			TraceID:      traceId,
+			CorrelationID:      correlationId,
 		})
 		log.Printf("   - Container registered in store: %s (%s, clientKey: %s)", containerID, actualName, clientKey)
 	}
 
 	response := DeploymentResultPayload{
 		WorkerId:          h.WorkerId,
-		TraceId:           traceId,
+		CorrelationId:           correlationId,
 		RequesterId:       h.RequesterId,
 		ResultStatus:      "SUCCESS",
 		ContainerId:       containerID,
@@ -164,7 +164,7 @@ func (h *CreateContainerHandler) Handle(ctx context.Context, msg core.CommandMes
 		PortBindings:      portBindings,
 	}
 
-	return h.publishResult(traceId, "DEPLOYMENT_RESULT", response)
+	return h.publishResult(correlationId, "DEPLOYMENT_RESULT", response)
 }
 
 // --- Helper Functions for Create ---
@@ -430,25 +430,25 @@ func (h *CreateContainerHandler) waitForContainerRunning(ctx context.Context, co
 }
 
 // sendFailure 실패 응답 전송
-func (h *CreateContainerHandler) sendFailure(traceId string, reason string) {
-	log.Printf(">> [DEPLOY FAILED] TraceID: %s, Worker: %s, Reason: %s",
-		traceId, h.WorkerId, reason)
+func (h *CreateContainerHandler) sendFailure(correlationId string, reason string) {
+	log.Printf(">> [DEPLOY FAILED] CorrelationID: %s, Worker: %s, Reason: %s",
+		correlationId, h.WorkerId, reason)
 
 	response := DeploymentResultPayload{
 		WorkerId:      h.WorkerId,
-		TraceId:       traceId,
+		CorrelationId:       correlationId,
 		RequesterId:   h.RequesterId,
 		ResultStatus:  "FAILED",
 		FailureReason: reason,
 	}
 
-	if err := h.publishResult(traceId, "DEPLOYMENT_RESULT", response); err != nil {
+	if err := h.publishResult(correlationId, "DEPLOYMENT_RESULT", response); err != nil {
 		log.Printf("   - Failed to publish failure result: %v", err)
 	}
 }
 
 // publishResult payload를 CommandMessage로 감싸서 발행
-func (h *CreateContainerHandler) publishResult(traceId string, cmdType string, payload any) error {
+func (h *CreateContainerHandler) publishResult(correlationId string, cmdType string, payload any) error {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -456,7 +456,7 @@ func (h *CreateContainerHandler) publishResult(traceId string, cmdType string, p
 
 	msg := core.CommandMessage{
 		CmdType:   cmdType,
-		TraceID:   traceId,
+		CorrelationID:   correlationId,
 		Payload:   payloadBytes,
 		Timestamp: time.Now().Unix(),
 	}

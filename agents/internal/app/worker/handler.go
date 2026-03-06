@@ -43,7 +43,7 @@ type DeleteContainerPayload struct {
 // === 결과 페이로드 (Worker -> Hub) ===
 type DeploymentResultPayload struct {
 	WorkerId          string         `json:"workerId"`
-	TraceId           string         `json:"traceId"`
+	CorrelationId           string         `json:"correlationId"`
 	RequesterId       string         `json:"requesterId"`
 	ResultStatus      string         `json:"resultStatus"`      // "SUCCESS" or "FAILED"
 	ContainerId       string         `json:"containerId"`       // Docker Container ID

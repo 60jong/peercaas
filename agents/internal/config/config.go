@@ -31,6 +31,7 @@ type RabbitMQConfig struct {
 
 type WorkerConfig struct {
 	WorkerID      string `mapstructure:"worker_id"`
+	WorkerKey     string `mapstructure:"worker_key"`
 	ResultQueue   string `mapstructure:"result_queue"`
 	Concurrency   int    `mapstructure:"concurrency"`
 	HubURL        string `mapstructure:"hub_url"`
@@ -71,6 +72,7 @@ func Load(configName string) *Config {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	_ = viper.BindEnv("worker.worker_id", "WORKER_ID")
+	_ = viper.BindEnv("worker.worker_key", "WORKER_KEY")
 	_ = viper.BindEnv("worker.max_cpu", "MAX_CPU")
 	_ = viper.BindEnv("worker.max_memory_mb", "MAX_MEMORY_MB")
 

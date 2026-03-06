@@ -25,7 +25,7 @@ type WorkerAgent struct {
 
 // NewAgent creates a new Worker instance with required dependencies.
 func NewAgent(mq core.Broker, cfg config.WorkerConfig, heartbeatQueue string, dockerCli *client.Client, traffic *metrics.TrafficStore, latency *metrics.LatencyMeasurer, repo *metrics.MetricRepository, shipper *metrics.MetricShipper, store *ContainerStore) *WorkerAgent {
-	collector := metrics.NewCollector(cfg.MaxCPU, cfg.MaxMemoryMb, dockerCli, store)
+	collector := metrics.NewCollector(cfg.MaxCPU, cfg.MaxMemoryMb, dockerCli)
 	h := NewHeartbeatManager(mq, cfg.WorkerID, heartbeatQueue, traffic, latency, collector, repo, shipper, dockerCli, store)
 
 	return &WorkerAgent{
@@ -96,7 +96,7 @@ func (w *WorkerAgent) processEvent(ctx context.Context, e core.Event) {
 		return
 	}
 
-	log.Printf("[Agent] Executing %s (Trace: %s)", msg.CmdType, msg.TraceID)
+	log.Printf("[Agent] Executing %s (Trace: %s)", msg.CmdType, msg.CorrelationID)
 	if err := handler.Handle(ctx, msg); err != nil {
 		log.Printf("[Agent] Handler error (%s): %v", msg.CmdType, err)
 		e.Nack()
