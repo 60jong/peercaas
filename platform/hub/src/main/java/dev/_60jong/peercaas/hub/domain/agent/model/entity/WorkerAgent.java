@@ -61,6 +61,14 @@ public class WorkerAgent extends BaseTimeEntity {
         this.lastHeartbeatAt = lastHeartbeatAt != null ? lastHeartbeatAt : LocalDateTime.now();
     }
 
+    public void updateIpAddress(String ipAddress) {
+        this.ipAddress = ipAddress;
+    }
+
+    public void clearIpAddress() {
+        this.ipAddress = null;
+    }
+
     public void updateHeartbeat(Double availableCpu, Long availableMemoryMb,
                                 Double averageLatencyMs, Integer runningContainerCount, Clock clock) {
         this.availableCpu = availableCpu;

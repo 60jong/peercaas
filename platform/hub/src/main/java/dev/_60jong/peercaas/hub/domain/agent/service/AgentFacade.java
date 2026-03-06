@@ -1,16 +1,12 @@
 package dev._60jong.peercaas.hub.domain.agent.service;
 
+import dev._60jong.peercaas.hub.domain.agent.controller.api.request.InitializeWorkerRequest;
 import dev._60jong.peercaas.hub.domain.agent.controller.api.request.RegisterClientAgentRequest;
-import dev._60jong.peercaas.hub.infra.cache.service.CacheService;
 import dev._60jong.peercaas.hub.domain.member.model.entity.Member;
 import dev._60jong.peercaas.hub.domain.member.service.MemberService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
-
-import static dev._60jong.peercaas.hub.domain.agent.config.AgentConstants.CLIENT_AGENT_KEY_NAME;
 
 @RequiredArgsConstructor
 @Transactional
@@ -18,19 +14,31 @@ import static dev._60jong.peercaas.hub.domain.agent.config.AgentConstants.CLIENT
 public class AgentFacade {
 
     private final ClientAgentService clientAgentService;
+    private final WorkerAgentService workerAgentService;
     private final MemberService memberService;
-    private final CacheService cacheService;
 
     public void registerClientAgent(RegisterClientAgentRequest request) {
         String key = request.getKey();
         String ipAddr = request.getIpAddress();
 
-        // 캐시로 부터 key에 매핑된 member-id 가져온다.
-        Long memberIdMappedByKey = cacheService.get(CLIENT_AGENT_KEY_NAME, key, Long.class)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-
-        Member member = memberService.findById(memberIdMappedByKey);
+        Member member = memberService.findByClientKey(key);
 
         clientAgentService.create(member, ipAddr);
+    }
+
+    public void initializeWorkerAgent(InitializeWorkerRequest request) {
+        String key = request.getWorkerKey();
+        String workerId = request.getWorkerId();
+        String ipAddr = request.getIpAddress();
+
+        Member member = memberService.findByWorkerKey(key);
+
+        workerAgentService.initialize(member, workerId, ipAddr);
+    }
+
+    public void resetWorkerIp(String workerKey, String workerId) {
+        Member member = memberService.findByWorkerKey(workerKey);
+
+        workerAgentService.resetIpAddress(workerId);
     }
 }
