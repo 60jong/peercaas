@@ -1,27 +1,29 @@
 package client
 
 import (
-	"log"
+	"fmt"
 	"os"
 )
 
 const defaultHubURL = "http://localhost:8080"
 
+// Config holds the configuration for the client agent.
 type Config struct {
-	ContainerID string // env: CONTAINER_ID (required)
-	ClientKey   string // env: PEERCAAS_CLIENT_KEY (optional, for metrics aggregation)
-	HubURL      string // env: HUB_URL (default: http://localhost:8080)
+	ContainerID string
+	ClientKey   string
+	HubURL      string
 }
 
-func LoadConfig() *Config {
+// LoadConfig reads configuration from environment variables.
+// It returns an error if required variables are missing.
+func LoadConfig() (*Config, error) {
 	containerID := os.Getenv("CONTAINER_ID")
 	if containerID == "" {
-		log.Fatal("CONTAINER_ID environment variable is required")
+		return nil, fmt.Errorf("CONTAINER_ID environment variable is required")
 	}
 
 	clientKey := os.Getenv("PEERCAAS_CLIENT_KEY")
 	if clientKey == "" {
-		// fallback to containerID if key not provided to keep existing behavior
 		clientKey = containerID
 	}
 
@@ -34,5 +36,5 @@ func LoadConfig() *Config {
 		ContainerID: containerID,
 		ClientKey:   clientKey,
 		HubURL:      hubURL,
-	}
+	}, nil
 }

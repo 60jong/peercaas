@@ -4,22 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
 // ContainerMetric represents a point-in-time usage record for a container.
 type ContainerMetric struct {
-	ID          int64
-	WorkerID    string
-	ContainerID string
-	ClientKey   string
-	CPUUsage    float64
-	MemUsageMb  int64
-	NetTxBytes  int64
-	NetRxBytes  int64
-	Timestamp   int64 // Nanoseconds
+	ID            int64
+	WorkerID      string
+	ContainerID   string
+	ClientKey     string
+	CPUUsage      float64
+	MemUsageMb    int64
+	NetTxBytes    int64
+	NetRxBytes    int64
+	Timestamp     int64 // Nanoseconds
 }
 
 // MetricRepository handles SQLite persistence for container metrics.
@@ -51,7 +51,7 @@ func NewMetricRepository(dbPath string) (*MetricRepository, error) {
 	CREATE INDEX IF NOT EXISTS idx_sent ON container_metrics(sent);
 	`
 	if _, err := db.Exec(query); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to create table: %w", err)
 	}
 
@@ -60,17 +60,20 @@ func NewMetricRepository(dbPath string) (*MetricRepository, error) {
 
 // Save records a new metric entry.
 func (r *MetricRepository) Save(ctx context.Context, m ContainerMetric) error {
-	query := `
+	const query = `
 	INSERT INTO container_metrics (worker_id, container_id, client_key, cpu_usage, mem_usage_mb, net_tx_bytes, net_rx_bytes, timestamp)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.ExecContext(ctx, query, m.WorkerID, m.ContainerID, m.ClientKey, m.CPUUsage, m.MemUsageMb, m.NetTxBytes, m.NetRxBytes, m.Timestamp)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to save metric: %w", err)
+	}
+	return nil
 }
 
 // GetPending retrieves unsent metrics for shipping.
 func (r *MetricRepository) GetPending(ctx context.Context, limit int) ([]ContainerMetric, error) {
-	query := `
+	const query = `
 	SELECT id, worker_id, container_id, client_key, cpu_usage, mem_usage_mb, net_tx_bytes, net_rx_bytes, timestamp 
 	FROM container_metrics 
 	WHERE sent = 0 
@@ -79,39 +82,47 @@ func (r *MetricRepository) GetPending(ctx context.Context, limit int) ([]Contain
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query pending metrics: %w", err)
 	}
 	defer rows.Close()
 
-	var metrics []ContainerMetric
+	var results []ContainerMetric
 	for rows.Next() {
 		var m ContainerMetric
 		if err := rows.Scan(&m.ID, &m.WorkerID, &m.ContainerID, &m.ClientKey, &m.CPUUsage, &m.MemUsageMb, &m.NetTxBytes, &m.NetRxBytes, &m.Timestamp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan metric row: %w", err)
 		}
-		metrics = append(metrics, m)
+		results = append(results, m)
 	}
-	return metrics, nil
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return results, nil
 }
 
-// MarkSent marks specified metric IDs as sent.
+// MarkSent removes specified metric IDs from the database to save local space.
 func (r *MetricRepository) MarkSent(ctx context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	// Simplified delete for sent records to save local disk space (as per discussion)
-	query := "DELETE FROM container_metrics WHERE id = ?"
-	stmt, err := r.db.PrepareContext(ctx, query)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
 
-	for _, id := range ids {
-		if _, err := stmt.ExecContext(ctx, id); err != nil {
-			log.Printf("[Repository] Failed to delete record %d: %v", id, err)
-		}
+	// Use a single query with IN clause for performance
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
 	}
+
+	query := fmt.Sprintf("DELETE FROM container_metrics WHERE id IN (%s)", strings.Join(placeholders, ","))
+	
+	_, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to delete sent metrics: %w", err)
+	}
+
 	return nil
 }
 

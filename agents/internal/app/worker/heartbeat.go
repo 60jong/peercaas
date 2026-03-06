@@ -16,7 +16,7 @@ import (
 // HeartbeatPayload represents unified telemetry sent to the hub via RabbitMQ.
 type HeartbeatPayload struct {
 	WorkerID          string              `json:"workerId"`
-	AvailableCpu      float64             `json:"availableCpu"`
+	AvailableCPU      float64             `json:"availableCpu"`
 	AvailableMemoryMb int64               `json:"availableMemoryMb"`
 	AverageLatencyMs  float64             `json:"averageLatencyMs"`
 	Containers        []ContainerSnapshot `json:"containers"`
@@ -30,6 +30,7 @@ type ContainerSnapshot struct {
 }
 
 // HeartbeatManager orchestrates periodic telemetry reporting and time-series shipping.
+// It combines real-time resource monitoring with persistent metric storage and remote shipping.
 type HeartbeatManager struct {
 	mq        core.Broker
 	workerID  string
@@ -43,27 +44,48 @@ type HeartbeatManager struct {
 	store     *ContainerStore
 }
 
-// NewHeartbeatManager creates a new reporting instance with SQLite and VM shipping.
-func NewHeartbeatManager(mq core.Broker, id, queue string, t *metrics.TrafficStore, l *metrics.LatencyMeasurer, c *metrics.Collector, repo *metrics.MetricRepository, shipper *metrics.MetricShipper, dockerCli *client.Client, store *ContainerStore) *HeartbeatManager {
-	return &HeartbeatManager{mq, id, queue, t, l, c, repo, shipper, dockerCli, store}
+// NewHeartbeatManager initializes a HeartbeatManager with all necessary backend services.
+func NewHeartbeatManager(
+	mq core.Broker,
+	id, queue string,
+	t *metrics.TrafficStore,
+	l *metrics.LatencyMeasurer,
+	c *metrics.Collector,
+	repo *metrics.MetricRepository,
+	shipper *metrics.MetricShipper,
+	dockerCli *client.Client,
+	store *ContainerStore,
+) *HeartbeatManager {
+	return &HeartbeatManager{
+		mq:        mq,
+		workerID:  id,
+		queue:     queue,
+		traffic:   t,
+		latency:   l,
+		collector: c,
+		repo:      repo,
+		shipper:   shipper,
+		dockerCli: dockerCli,
+		store:     store,
+	}
 }
 
-// Start initiates the reporting and shipping loops.
+// Start initiates the periodic reporting and shipping loops. It blocks until the context is cancelled.
 func (h *HeartbeatManager) Start(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	reportTicker := time.NewTicker(5 * time.Second)
+	defer reportTicker.Stop()
 
-	// Shipping ticker (every 1 minute)
 	shipTicker := time.NewTicker(1 * time.Minute)
 	defer shipTicker.Stop()
 
-	log.Printf("[Heartbeat] Reporting service started for worker: %s", h.workerID)
+	log.Printf("[Heartbeat] Service started for worker: %s", h.workerID)
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("[Heartbeat] Service stopping for worker: %s", h.workerID)
 			return
-		case <-ticker.C:
+		case <-reportTicker.C:
 			h.report(ctx)
 		case <-shipTicker.C:
 			h.ship(ctx)
@@ -71,111 +93,115 @@ func (h *HeartbeatManager) Start(ctx context.Context) {
 	}
 }
 
-// report collects metrics, saves to SQLite, and sends heartbeat via RMQ.
+// report collects metrics from all sources, persists them locally, and broadcasts a summary heartbeat.
 func (h *HeartbeatManager) report(ctx context.Context) {
-	// 1. Gather resource availability
-	res, _ := h.collector.GetAvailableResources(ctx)
+	res, err := h.collector.GetAvailableResources(ctx)
+	if err != nil {
+		log.Printf("[Heartbeat] Resource collection failed: %v", err)
+	}
 
 	now := time.Now().UnixNano()
-	
-	// 2. Gather ALL running containers from Docker to ensure we record metrics even without traffic
 	containers, err := h.dockerCli.ContainerList(ctx, container.ListOptions{})
-	snapshotList := make([]ContainerSnapshot, 0)
-	
-	if err == nil {
-		for _, c := range containers {
-			// Get individual stats (CPU/Mem)
-			cStats, err := h.collector.GetContainerStats(ctx, c.ID)
-			if err != nil {
-				continue
-			}
-
-			// Get network stats if available in traffic store
-			tx, rx := int64(0), int64(0)
-			if t, ok := h.traffic.Get(c.ID); ok {
-				tx = t.Tx()
-				rx = t.Rx()
-			}
-
-			// Get clientKey from store if available
-			clientKey := ""
-			if info, ok := h.store.Get(c.ID); ok {
-				clientKey = info.ClientKey
-			}
-
-			// Save to local SQLite for time-series / billing
-			m := metrics.ContainerMetric{
-				WorkerID:    h.workerID,
-				ContainerID: c.ID,
-				ClientKey:   clientKey,
-				CPUUsage:    cStats.CPUUsage,
-				MemUsageMb:  cStats.MemUsageMb,
-				NetTxBytes:  tx,
-				NetRxBytes:  rx,
-				Timestamp:   now,
-			}
-			if err := h.repo.Save(ctx, m); err != nil {
-				log.Printf("[Heartbeat] Failed to save metric for %s: %v", c.ID[:8], err)
-			}
-
-			snapshotList = append(snapshotList, ContainerSnapshot{
-				ContainerID: c.ID,
-				TxBytes:     tx,
-				RxBytes:     rx,
-			})
-		}
+	if err != nil {
+		log.Printf("[Heartbeat] Failed to list containers: %v", err)
+		return
 	}
 
-	// 3. Send Summary Heartbeat via RMQ
+	snapshots := make([]ContainerSnapshot, 0, len(containers))
+	for _, c := range containers {
+		stats, err := h.collector.GetContainerStats(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+
+		tx, rx := int64(0), int64(0)
+		if t, ok := h.traffic.Get(c.ID); ok {
+			tx, rx = t.Tx(), t.Rx()
+		}
+
+		clientKey := ""
+		if info, ok := h.store.Get(c.ID); ok {
+			clientKey = info.ClientKey
+		}
+
+		metric := metrics.ContainerMetric{
+			WorkerID:    h.workerID,
+			ContainerID: c.ID,
+			ClientKey:   clientKey,
+			CPUUsage:    stats.CPUUsage,
+			MemUsageMb:  stats.MemUsageMb,
+			NetTxBytes:  tx,
+			NetRxBytes:  rx,
+			Timestamp:   now,
+		}
+
+		if err := h.repo.Save(ctx, metric); err != nil {
+			log.Printf("[Heartbeat] Local persistence failed for %s: %v", c.ID[:8], err)
+		}
+
+		snapshots = append(snapshots, ContainerSnapshot{
+			ContainerID: c.ID,
+			TxBytes:     tx,
+			RxBytes:     rx,
+		})
+	}
+
 	payload := HeartbeatPayload{
 		WorkerID:          h.workerID,
-		AvailableCpu:      res.AvailableCPU,
+		AvailableCPU:      res.AvailableCPU,
 		AvailableMemoryMb: res.AvailableMemoryMb,
 		AverageLatencyMs:  h.latency.Get(),
-		Containers:        snapshotList,
+		Containers:        snapshots,
 	}
 
-	data, _ := json.Marshal(payload)
-	
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[Heartbeat] Marshal error: %v", err)
+		return
+	}
+
 	if err := h.mq.Publish(ctx, h.queue, data); err != nil {
-		log.Printf("[Heartbeat] Failed to publish metrics to RMQ: %v", err)
+		log.Printf("[Heartbeat] RMQ broadcast failed: %v", err)
 	}
 }
 
-// ship reads pending metrics from SQLite and sends to VictoriaMetrics.
+// ship extracts unsent metrics from the local database and forwards them to the remote time-series store.
 func (h *HeartbeatManager) ship(ctx context.Context) {
+	const batchSize = 100
 	totalShipped := 0
+
 	for {
-		pending, err := h.repo.GetPending(ctx, 100)
+		pending, err := h.repo.GetPending(ctx, batchSize)
 		if err != nil {
-			log.Printf("[Shipper] Failed to fetch pending metrics: %v", err)
+			log.Printf("[Shipper] Query failed: %v", err)
 			break
 		}
 		if len(pending) == 0 {
 			break
 		}
 
-		// Measure VictoriaMetrics ship time as the current latency (New Piggybacking Strategy)
 		start := time.Now()
 		if err := h.shipper.ShipBatch(ctx, pending); err != nil {
-			log.Printf("[Shipper] Failed to ship batch: %v", err)
+			log.Printf("[Shipper] Batch shipping failed: %v", err)
 			break
-		} else {
-			elapsed := float64(time.Since(start).Microseconds()) / 1000.0
-			h.latency.Update(elapsed)
 		}
+
+		// Update latency measurements based on shipping response time
+		elapsed := float64(time.Since(start).Microseconds()) / 1000.0
+		h.latency.Update(elapsed)
 
 		ids := make([]int64, len(pending))
 		for i, m := range pending {
 			ids[i] = m.ID
 		}
+
 		if err := h.repo.MarkSent(ctx, ids); err != nil {
-			log.Printf("[Shipper] Failed to mark metrics as sent: %v", err)
+			log.Printf("[Shipper] Mark sent failed: %v", err)
 		}
 		totalShipped += len(pending)
 	}
-	
+
 	if totalShipped > 0 {
-		log.Printf("[Shipper] Successfully shipped %d metrics to VictoriaMetrics", totalShipped)
+		log.Printf("[Shipper] Forwarded %d metrics to VictoriaMetrics", totalShipped)
 	}
 }

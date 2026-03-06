@@ -16,19 +16,15 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// ConnectWebRTCPayload: Client-agent → Worker (요청)
+// ConnectWebRTCPayload defines the request from a client agent to establish a WebRTC tunnel.
 type ConnectWebRTCPayload struct {
 	ContainerID string                    `json:"containerId"`
 	Offer       webrtc.SessionDescription `json:"offer"`
 	ReplyQueue  string                    `json:"replyQueue"`
 }
 
-// ConnectWebRTCAnswerPayload: Worker → Client-agent (응답)
-type ConnectWebRTCAnswerPayload struct {
-	ContainerID string                    `json:"containerId"`
-	Answer      webrtc.SessionDescription `json:"answer"`
-}
-
+// ConnectWebRTCHandler manages the establishment of WebRTC peer connections.
+// It bridges WebRTC data channels to local container TCP ports.
 type ConnectWebRTCHandler struct {
 	Store     *ContainerStore
 	Broker    core.Broker
@@ -37,35 +33,32 @@ type ConnectWebRTCHandler struct {
 	Traffic   *metrics.TrafficStore
 }
 
+// Handle processes a WebRTC connection request.
 func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessage) error {
-	correlationId := msg.CorrelationID
+	correlationID := msg.CorrelationID
 
 	var p ConnectWebRTCPayload
 	if err := json.Unmarshal(msg.Payload, &p); err != nil {
-		return fmt.Errorf("invalid CONNECT_WEBRTC payload: %w", err)
+		return fmt.Errorf("failed to unmarshal CONNECT_WEBRTC payload: %w", err)
 	}
 
-	log.Printf(">> [WEBRTC] CorrelationID: %s, ContainerID: %s", correlationId, p.ContainerID)
+	log.Printf("[WebRTC] Establishing connection for container %s (CorrelationID: %s)", p.ContainerID[:12], correlationID)
 
-	// 1. Store에서 컨테이너 정보 조회 (없으면 Docker inspect로 복구)
 	info, ok := h.Store.Get(p.ContainerID)
 	if !ok {
-		log.Printf(">> [WEBRTC] Container not in store, falling back to Docker inspect: %s", p.ContainerID)
+		log.Printf("[WebRTC] Container %s missing from store, attempting recovery", p.ContainerID[:12])
 		recovered, err := h.recoverFromDocker(ctx, p.ContainerID)
 		if err != nil {
-			return fmt.Errorf("container not found in store and Docker inspect failed: %w", err)
+			return fmt.Errorf("failed to recover container info: %w", err)
 		}
-		h.Store.Put(recovered)
+		h.Store.Add(recovered)
 		info = recovered
-		log.Printf(">> [WEBRTC] Container recovered from Docker: %s (ports: %v)", p.ContainerID, info.PortBindings)
 	}
 
-	// 2. PeerConnection 생성 (DetachDataChannels 활성화)
 	se := webrtc.SettingEngine{}
 	se.DetachDataChannels()
 
 	api := webrtc.NewAPI(webrtc.WithSettingEngine(se))
-
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
@@ -77,179 +70,122 @@ func (h *ConnectWebRTCHandler) Handle(ctx context.Context, msg core.CommandMessa
 		return fmt.Errorf("failed to create PeerConnection: %w", err)
 	}
 
-	// 3. DataChannel 핸들러 등록 (TCP 릴레이)
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		label := dc.Label()
-		dcReceived := time.Now()
-		log.Printf(">> [Timing][Worker] DataChannel received: %s (ContainerID: %s)", label, p.ContainerID)
-
-		dc.OnOpen(func() {
-			log.Printf(">> [Timing][Worker] DataChannel opened in %v (label: %s)", time.Since(dcReceived), label)
-
-			hostPort, exists := info.PortBindings[label]
-			if !exists {
-				log.Printf(">> [WEBRTC] Unknown port label: %s", label)
-				dc.Close()
-				return
-			}
-
-			dcSocket, err := dc.Detach()
-			if err != nil {
-				log.Printf(">> [WEBRTC] Detach failed: %v", err)
-				return
-			}
-
-			// 컨테이너의 호스트 포트로 TCP 연결
-			addr := fmt.Sprintf("127.0.0.1:%d", hostPort)
-			tcpStart := time.Now()
-			tcpConn, err := net.Dial("tcp", addr)
-			if err != nil {
-				log.Printf(">> [WEBRTC] TCP connect failed (%s): %v", addr, err)
-				dcSocket.Close()
-				return
-			}
-			log.Printf(">> [Timing][Worker] TCP connect to container %s in %v", addr, time.Since(tcpStart))
-			log.Printf(">> [Timing][Worker] Total setup (DC received → bridge ready): %v", time.Since(dcReceived))
-
-			// 트래픽 집계 후 양방향 릴레이 (dcSocket=remote, tcpConn=local/container)
-			stats := h.Traffic.GetOrCreate(p.ContainerID, "webrtc")
-			stats.IncrConn()
-			go metrics.BridgeWithTraffic(dcSocket, tcpConn, stats)
-		})
+		h.handleDataChannel(p.ContainerID, info, dc)
 	})
 
-	// 4. 연결 상태 모니터링
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf(">> [WEBRTC] Connection state: %s (ContainerID: %s)", state.String(), p.ContainerID)
-		if state == webrtc.PeerConnectionStateConnected {
-			// ICE candidate pair 정보 로깅
-			stats := pc.GetStats()
-			var nominatedPair *webrtc.ICECandidatePairStats
-			candidates := make(map[string]webrtc.ICECandidateStats)
-
-			for _, s := range stats {
-				if pair, ok := s.(webrtc.ICECandidatePairStats); ok && pair.Nominated {
-					nominatedPair = &pair
-				}
-				if cand, ok := s.(webrtc.ICECandidateStats); ok {
-					candidates[cand.ID] = cand
-				}
-			}
-
-			if nominatedPair != nil {
-				local := candidates[nominatedPair.LocalCandidateID]
-				remote := candidates[nominatedPair.RemoteCandidateID]
-				log.Printf(">> [ICE] Selected Pair: %s <-> %s (RTT: %.1fms)",
-					local.CandidateType, remote.CandidateType, nominatedPair.CurrentRoundTripTime*1000)
-			}
-		}
-		if state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed {
-			pc.Close()
+		log.Printf("[WebRTC] Connection state: %s (Container: %s)", state, p.ContainerID[:12])
+		if state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+			_ = pc.Close()
 		}
 	})
 
-	// 5. SDP 교환
 	if err := pc.SetRemoteDescription(p.Offer); err != nil {
-		pc.Close()
+		_ = pc.Close()
 		return fmt.Errorf("failed to set remote description: %w", err)
 	}
 
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
-		pc.Close()
+		_ = pc.Close()
 		return fmt.Errorf("failed to create answer: %w", err)
 	}
 
 	if err := pc.SetLocalDescription(answer); err != nil {
-		pc.Close()
+		_ = pc.Close()
 		return fmt.Errorf("failed to set local description: %w", err)
 	}
 
-	// 6. ICE gathering 완료 대기 (30초 타임아웃)
 	gatherComplete := webrtc.GatheringCompletePromise(pc)
 	select {
 	case <-gatherComplete:
-		// ICE gathering 완료
 	case <-time.After(30 * time.Second):
-		pc.Close()
-		return fmt.Errorf("ICE gathering timeout")
+		_ = pc.Close()
+		return fmt.Errorf("ICE gathering timed out")
 	case <-ctx.Done():
-		pc.Close()
-		return fmt.Errorf("context cancelled during ICE gathering: %w", ctx.Err())
+		_ = pc.Close()
+		return ctx.Err()
 	}
 
-	// 7. PeerConnection을 Store에 등록
 	h.Store.AddPeerConnection(p.ContainerID, pc)
 
-	// 8. Answer를 replyQueue에 발행
-	answerPayload := ConnectWebRTCAnswerPayload{
-		ContainerID: p.ContainerID,
-		Answer:      *pc.LocalDescription(),
-	}
-
-	payloadBytes, err := json.Marshal(answerPayload)
-	if err != nil {
-		pc.Close()
-		return fmt.Errorf("failed to marshal answer payload: %w", err)
-	}
-
-	replyMsg := core.CommandMessage{
-		CmdType:   "CONNECT_WEBRTC_ANSWER",
-		CorrelationID:   correlationId,
-		Payload:   payloadBytes,
-		Timestamp: time.Now().Unix(),
-	}
-
-	replyBytes, err := json.Marshal(replyMsg)
-	if err != nil {
-		pc.Close()
-		return fmt.Errorf("failed to marshal reply message: %w", err)
-	}
-
-	publishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := h.Broker.Publish(publishCtx, p.ReplyQueue, replyBytes); err != nil {
-		pc.Close()
-		return fmt.Errorf("failed to publish answer to %s: %w", p.ReplyQueue, err)
-	}
-
-	log.Printf(">> [WEBRTC] Answer published to %s (ContainerID: %s)", p.ReplyQueue, p.ContainerID)
-
-	return nil
+	return h.sendAnswer(correlationID, p.ContainerID, p.ReplyQueue, *pc.LocalDescription())
 }
 
-// recoverFromDocker Docker inspect로 ContainerInfo를 복구 (Worker 재시작 시 Store가 비었을 때)
-func (h *ConnectWebRTCHandler) recoverFromDocker(ctx context.Context, containerID string) (*ContainerInfo, error) {
-	if h.DockerCli == nil {
-		return nil, fmt.Errorf("Docker client not available")
+func (h *ConnectWebRTCHandler) handleDataChannel(containerID string, info *ContainerInfo, dc *webrtc.DataChannel) {
+	label := dc.Label()
+	dc.OnOpen(func() {
+		hostPort, exists := info.PortBindings[label]
+		if !exists {
+			log.Printf("[WebRTC] Invalid data channel label: %s", label)
+			_ = dc.Close()
+			return
+		}
+
+		dcSocket, err := dc.Detach()
+		if err != nil {
+			log.Printf("[WebRTC] Failed to detach data channel: %v", err)
+			return
+		}
+
+		addr := fmt.Sprintf("127.0.0.1:%d", hostPort)
+		tcpConn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+		if err != nil {
+			log.Printf("[WebRTC] TCP connection failed to %s: %v", addr, err)
+			_ = dcSocket.Close()
+			return
+		}
+
+		stats := h.Traffic.GetOrCreate(containerID, "WEBRTC")
+		stats.IncrConn()
+		go metrics.BridgeWithTraffic(dcSocket, tcpConn, stats)
+	})
+}
+
+func (h *ConnectWebRTCHandler) sendAnswer(correlationID, containerID, replyQueue string, answer webrtc.SessionDescription) error {
+	payload := WebRTCAnswerPayload{
+		ContainerID: containerID,
+		Answer:      json.RawMessage(mustMarshal(answer)),
 	}
 
+	payloadBytes, _ := json.Marshal(payload)
+	replyMsg := core.CommandMessage{
+		CmdType:       "CONNECT_WEBRTC_ANSWER",
+		CorrelationID: correlationID,
+		Payload:       payloadBytes,
+		Timestamp:     time.Now().Unix(),
+	}
+
+	data, _ := json.Marshal(replyMsg)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return h.Broker.Publish(ctx, replyQueue, data)
+}
+
+func (h *ConnectWebRTCHandler) recoverFromDocker(ctx context.Context, containerID string) (*ContainerInfo, error) {
 	inspect, err := h.DockerCli.ContainerInspect(ctx, containerID)
 	if err != nil {
-		return nil, fmt.Errorf("Docker inspect failed: %w", err)
+		return nil, err
 	}
 
-	if !inspect.State.Running {
-		return nil, fmt.Errorf("container %s is not running (state: %s)", containerID, inspect.State.Status)
-	}
-
-	portBindings := make(map[string]int)
-	for containerPort, bindings := range inspect.NetworkSettings.Ports {
-		if len(bindings) == 0 {
-			continue
+	bindings := make(map[string]int)
+	for p, b := range inspect.NetworkSettings.Ports {
+		if len(b) > 0 {
+			port, _ := strconv.Atoi(b[0].HostPort)
+			bindings[string(p)] = port
 		}
-		hostPort, err := strconv.Atoi(bindings[0].HostPort)
-		if err != nil {
-			log.Printf(">> [WEBRTC] Invalid host port for %s: %s", containerPort, bindings[0].HostPort)
-			continue
-		}
-		portBindings[string(containerPort)] = hostPort
 	}
 
 	return &ContainerInfo{
 		ContainerID:  containerID,
 		Name:         inspect.Name,
-		PortBindings: portBindings,
+		PortBindings: bindings,
 	}, nil
+}
+
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -26,27 +28,53 @@ type containerSnapshot struct {
 	LastActive  string `json:"lastActive"` // RFC3339
 }
 
-// StartReporter starts a background goroutine that POSTs traffic metrics to Hub
-// every 5 seconds. agentType is "client" or "worker"; agentID is containerID or workerID.
-func StartReporter(ctx context.Context, hubURL, agentType, agentID string, store *TrafficStore) {
-	endpoint := hubURL + "/api/v1/metrics"
-	log.Printf("[Metrics] Reporter started → %s (agentType=%s, agentID=%s)", endpoint, agentType, agentID)
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				postReport(endpoint, buildReport(agentType, agentID, store))
-			}
-		}
-	}()
+// Reporter periodic reports traffic metrics to the central Hub.
+type Reporter struct {
+	hubURL     string
+	agentType  string
+	agentID    string
+	store      *TrafficStore
+	httpClient *http.Client
+	interval   time.Duration
 }
 
-func buildReport(agentType, agentID string, store *TrafficStore) *metricsReport {
-	all := store.All()
+// NewReporter initializes a new metrics reporter.
+func NewReporter(hubURL, agentType, agentID string, store *TrafficStore) *Reporter {
+	return &Reporter{
+		hubURL:    hubURL,
+		agentType: agentType,
+		agentID:   agentID,
+		store:     store,
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+		interval: 5 * time.Second,
+	}
+}
+
+// Run starts the reporting loop. It blocks until the context is cancelled.
+func (r *Reporter) Run(ctx context.Context) {
+	endpoint := fmt.Sprintf("%s/api/v1/metrics", r.hubURL)
+	log.Printf("[Metrics] Reporter started → %s (agentType=%s, agentID=%s)", endpoint, r.agentType, r.agentID)
+
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[Metrics] Reporter stopping...")
+			return
+		case <-ticker.C:
+			if err := r.postReport(ctx, endpoint, r.buildReport()); err != nil {
+				log.Printf("[Metrics] Report failed: %v", err)
+			}
+		}
+	}
+}
+
+func (r *Reporter) buildReport() *metricsReport {
+	all := r.store.All()
 	containers := make([]containerSnapshot, 0, len(all))
 	for _, t := range all {
 		containers = append(containers, containerSnapshot{
@@ -60,30 +88,43 @@ func buildReport(agentType, agentID string, store *TrafficStore) *metricsReport 
 		})
 	}
 	return &metricsReport{
-		AgentType:  agentType,
-		AgentID:    agentID,
+		AgentType:  r.agentType,
+		AgentID:    r.agentID,
 		Timestamp:  time.Now().Unix(),
 		Containers: containers,
 	}
 }
 
-func postReport(endpoint string, report *metricsReport) {
+func (r *Reporter) postReport(ctx context.Context, endpoint string, report *metricsReport) error {
 	body, err := json.Marshal(report)
 	if err != nil {
-		log.Printf("[Metrics] Marshal error: %v", err)
-		return
+		return fmt.Errorf("marshal error: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+
+	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[Metrics] Report failed: %v", err)
-		return
+		return err
 	}
-	resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("hub returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// StartReporter is a convenience function to start a reporter in a background goroutine.
+func StartReporter(ctx context.Context, hubURL, agentType, agentID string, store *TrafficStore) {
+	reporter := NewReporter(hubURL, agentType, agentID, store)
+	go reporter.Run(ctx)
 }

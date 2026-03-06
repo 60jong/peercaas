@@ -14,43 +14,27 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// retryIntervals: 30s → 1m → 2m → 2m → ...
-var retryIntervals = []time.Duration{
-	30 * time.Second,
-	1 * time.Minute,
-	2 * time.Minute,
-}
+type transportType int32
 
-func retryInterval(attempt int) time.Duration {
-	if attempt < len(retryIntervals) {
-		return retryIntervals[attempt]
-	}
-	return retryIntervals[len(retryIntervals)-1]
-}
-
-// transport 타입
 const (
-	transportWebRTC = 0
-	transportRelay  = 1
+	transportWebRTC transportType = 0
+	transportRelay  transportType = 1
 )
 
-// ConnectionManager: WebRTC/Relay 전환 + 백그라운드 WebRTC retry 전략
+// ConnectionManager handles the orchestration between WebRTC and fallback Relay transports.
+// It manages TCP listeners, performs hot-swapping between transports, and handles reconnections.
 type ConnectionManager struct {
 	config    *Config
 	hubClient *HubClient
 	traffic   *metrics.TrafficStore
 
-	// 현재 활성 transport (atomic: 0=WebRTC, 1=Relay)
-	activeTransport atomic.Int32
-
-	// WebRTC PeerConnection (WebRTC transport 활성 시)
-	pcMu sync.RWMutex
-	pc   *webrtc.PeerConnection
-
-	// portBindings: "3306/tcp" → containerPort (80, 3306, ...)
-	portBindings map[string]int
+	activeTransport int32 // atomic transportType
+	pcMu            sync.RWMutex
+	pc              *webrtc.PeerConnection
+	portBindings    map[string]int
 }
 
+// NewConnectionManager initializes a new ConnectionManager.
 func NewConnectionManager(cfg *Config, hub *HubClient, traffic *metrics.TrafficStore) *ConnectionManager {
 	return &ConnectionManager{
 		config:    cfg,
@@ -59,78 +43,68 @@ func NewConnectionManager(cfg *Config, hub *HubClient, traffic *metrics.TrafficS
 	}
 }
 
-// Run: 메인 진입점
+// Run starts the management loop, initializes listeners, and manages the primary transport lifecycle.
 func (cm *ConnectionManager) Run(ctx context.Context) error {
-	// 1. 컨테이너 정보 조회
 	info, err := cm.hubClient.GetContainerInfo(ctx, cm.config.ContainerID)
 	if err != nil {
-		return fmt.Errorf("failed to get container info: %w", err)
+		return fmt.Errorf("initialization failed: %w", err)
 	}
-	log.Printf("[Manager] Container %s ready, ports: %v", info.ContainerID, info.PortBindings)
+
+	log.Printf("[Manager] Container %s ready, ports: %v", info.ContainerID[:12], info.PortBindings)
 	cm.portBindings = info.PortBindings
 
-	// 2. TCP 리스너 시작 (transport 전환과 무관하게 동일 포트 유지)
 	listeners, err := cm.startListeners(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start listeners: %w", err)
 	}
 	defer func() {
 		for _, ln := range listeners {
-			ln.Close()
+			_ = ln.Close()
 		}
 	}()
 
-	// 3. WebRTC 연결 시도
-	pc, err := cm.tryWebRTC(ctx)
-	if err != nil {
-		log.Printf("[Manager] WebRTC failed (%v), switching to relay", err)
-		cm.activeTransport.Store(transportRelay)
-
-		// 백그라운드에서 WebRTC retry 시작
-		go cm.retryWebRTCLoop(ctx)
+	// Attempt initial WebRTC connection
+	if pc, err := cm.tryWebRTC(ctx); err != nil {
+		log.Printf("[Manager] Initial WebRTC failed: %v. Using relay.", err)
+		atomic.StoreInt32(&cm.activeTransport, int32(transportRelay))
+		go cm.reconnectLoop(ctx)
 	} else {
 		log.Printf("[Manager] WebRTC connected")
 		cm.setPeerConnection(pc)
-		cm.activeTransport.Store(transportWebRTC)
-
-		// WebRTC 연결이 끊기면 relay로 전환
-		go cm.watchWebRTCAndFallback(ctx, pc)
+		atomic.StoreInt32(&cm.activeTransport, int32(transportWebRTC))
+		go cm.monitorWebRTC(ctx, pc)
 	}
 
 	<-ctx.Done()
 	return nil
 }
 
-// startListeners: 각 포트에 TCP 리스너 시작
 func (cm *ConnectionManager) startListeners(ctx context.Context) ([]net.Listener, error) {
 	var listeners []net.Listener
-
-	for portKey := range cm.portBindings {
-		containerPort, err := parseContainerPort(portKey)
+	for key := range cm.portBindings {
+		port, err := parseContainerPort(key)
 		if err != nil {
-			log.Printf("[Manager] Skipping invalid port key %q: %v", portKey, err)
 			continue
 		}
 
-		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
+		addr := fmt.Sprintf("0.0.0.0:%d", port)
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {
-			log.Printf("[Manager] Failed to listen on %s: %v", addr, err)
+			log.Printf("[Manager] Listen failed on %s: %v", addr, err)
 			continue
 		}
 		listeners = append(listeners, ln)
-		log.Printf("[Manager] Listening on %s (portKey: %s)", addr, portKey)
+		log.Printf("[Manager] Listening on %s (%s)", addr, key)
 
-		go cm.acceptLoop(ctx, ln, portKey)
+		go cm.acceptLoop(ctx, ln, key)
 	}
 
 	if len(listeners) == 0 {
-		return nil, fmt.Errorf("no TCP listeners started")
+		return nil, fmt.Errorf("no listeners could be established")
 	}
 	return listeners, nil
 }
 
-// acceptLoop: 포트별 연결 수락 루프
 func (cm *ConnectionManager) acceptLoop(ctx context.Context, ln net.Listener, portKey string) {
 	for {
 		conn, err := ln.Accept()
@@ -138,113 +112,83 @@ func (cm *ConnectionManager) acceptLoop(ctx context.Context, ln net.Listener, po
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("[Manager] Accept error on %s: %v", portKey, err)
-			return
+			continue
 		}
-		go cm.handleConnection(ctx, conn, portKey)
+		go cm.handleNewConnection(ctx, conn, portKey)
 	}
 }
 
-// handleConnection: 현재 transport에 따라 WebRTC 또는 Relay로 처리
-func (cm *ConnectionManager) handleConnection(ctx context.Context, conn net.Conn, portKey string) {
-	if cm.activeTransport.Load() == transportWebRTC {
+func (cm *ConnectionManager) handleNewConnection(ctx context.Context, conn net.Conn, portKey string) {
+	if transportType(atomic.LoadInt32(&cm.activeTransport)) == transportWebRTC {
 		cm.handleWebRTC(ctx, conn, portKey)
 	} else {
 		cm.handleRelay(ctx, conn, portKey)
 	}
 }
 
-// handleWebRTC: WebRTC DataChannel로 릴레이
 func (cm *ConnectionManager) handleWebRTC(ctx context.Context, tcpConn net.Conn, portKey string) {
-	connStart := time.Now()
-	log.Printf("[Timing][Client] TCP accepted from %s for %s", tcpConn.RemoteAddr(), portKey)
-
 	cm.pcMu.RLock()
 	pc := cm.pc
 	cm.pcMu.RUnlock()
 
 	if pc == nil || pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
-		log.Printf("[Manager] WebRTC not ready, falling back to relay for this connection")
 		cm.handleRelay(ctx, tcpConn, portKey)
 		return
 	}
 
-	dcCreateStart := time.Now()
 	dc, err := pc.CreateDataChannel(portKey, nil)
 	if err != nil {
-		log.Printf("[Manager] DataChannel create failed: %v", err)
-		tcpConn.Close()
+		_ = tcpConn.Close()
 		return
 	}
-	log.Printf("[Timing][Client] DataChannel created in %v", time.Since(dcCreateStart))
 
 	dc.OnOpen(func() {
-		dcOpenElapsed := time.Since(connStart)
-		log.Printf("[Timing][Client] DataChannel opened in %v (since TCP accept)", dcOpenElapsed)
-
-		rawDC, err := dc.Detach()
+		raw, err := dc.Detach()
 		if err != nil {
-			log.Printf("[Manager] Detach failed: %v", err)
-			tcpConn.Close()
+			_ = tcpConn.Close()
 			return
 		}
-		log.Printf("[Manager] WebRTC relay: %s <-> DataChannel(%s)", tcpConn.RemoteAddr(), portKey)
-		stats := cm.traffic.GetOrCreate(cm.config.ContainerID, "webrtc")
+		stats := cm.traffic.GetOrCreate(cm.config.ContainerID, "WEBRTC")
 		stats.IncrConn()
-		go metrics.BridgeWithTraffic(rawDC, tcpConn, stats)
+		metrics.BridgeWithTraffic(raw, tcpConn, stats)
 	})
 }
 
-// handleRelay: Engine TCP relay를 통해 릴레이
 func (cm *ConnectionManager) handleRelay(ctx context.Context, tcpConn net.Conn, portKey string) {
-	log.Printf("[Manager] Requesting relay session for portKey=%s", portKey)
+	defer tcpConn.Close()
 
-	relayInfo, err := cm.hubClient.RequestRelay(ctx, cm.config.ContainerID, portKey)
+	info, err := cm.hubClient.RequestRelay(ctx, cm.config.ContainerID, portKey)
 	if err != nil {
-		log.Printf("[Manager] Relay request failed: %v", err)
-		tcpConn.Close()
 		return
 	}
 
-	relayAddr := fmt.Sprintf("%s:%d", relayInfo.RelayHost, relayInfo.RelayPort)
-	relayConn, err := net.DialTimeout("tcp", relayAddr, 10*time.Second)
+	addr := fmt.Sprintf("%s:%d", info.RelayHost, info.RelayPort)
+	relayConn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
-		log.Printf("[Manager] Failed to connect to relay %s: %v", relayAddr, err)
-		tcpConn.Close()
 		return
 	}
 
-	// 핸드셰이크: 세션 토큰 전송
-	if _, err := fmt.Fprintf(relayConn, "%s\n", relayInfo.Token); err != nil {
-		log.Printf("[Manager] Relay handshake failed: %v", err)
-		relayConn.Close()
-		tcpConn.Close()
+	if _, err := fmt.Fprintf(relayConn, "%s\n", info.Token); err != nil {
+		_ = relayConn.Close()
 		return
 	}
 
-	log.Printf("[Manager] Relay bridge: %s ↔ relay(token=%s)", tcpConn.RemoteAddr(), relayInfo.Token)
-	stats := cm.traffic.GetOrCreate(cm.config.ContainerID, "relay")
+	stats := cm.traffic.GetOrCreate(cm.config.ContainerID, "RELAY")
 	stats.IncrConn()
 	metrics.BridgeWithTraffic(relayConn, tcpConn, stats)
 }
 
-// tryWebRTC: WebRTC PeerConnection 수립 시도
-// 성공 시 PeerConnection 반환, 실패 시 에러
 func (cm *ConnectionManager) tryWebRTC(ctx context.Context) (*webrtc.PeerConnection, error) {
-	tunnel := &Tunnel{Config: cm.config, HubClient: cm.hubClient}
-	return tunnel.Connect(ctx)
+	t := &Tunnel{Config: cm.config, HubClient: cm.hubClient}
+	return t.Connect(ctx)
 }
 
-// watchWebRTCAndFallback: WebRTC 연결이 끊기면 relay로 전환 후 retry 루프 시작
-func (cm *ConnectionManager) watchWebRTCAndFallback(ctx context.Context, pc *webrtc.PeerConnection) {
-	failed := make(chan struct{}, 1)
-
+func (cm *ConnectionManager) monitorWebRTC(ctx context.Context, pc *webrtc.PeerConnection) {
+	done := make(chan struct{})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		if state == webrtc.PeerConnectionStateFailed ||
-			state == webrtc.PeerConnectionStateDisconnected ||
-			state == webrtc.PeerConnectionStateClosed {
+		if state == webrtc.PeerConnectionStateDisconnected || state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
 			select {
-			case failed <- struct{}{}:
+			case done <- struct{}{}:
 			default:
 			}
 		}
@@ -252,42 +196,38 @@ func (cm *ConnectionManager) watchWebRTCAndFallback(ctx context.Context, pc *web
 
 	select {
 	case <-ctx.Done():
-		return
-	case <-failed:
+	case <-done:
 		log.Printf("[Manager] WebRTC connection lost, switching to relay")
-		cm.activeTransport.Store(transportRelay)
-		pc.Close()
-		go cm.retryWebRTCLoop(ctx)
+		atomic.StoreInt32(&cm.activeTransport, int32(transportRelay))
+		_ = pc.Close()
+		go cm.reconnectLoop(ctx)
 	}
 }
 
-// retryWebRTCLoop: 백그라운드에서 WebRTC 재연결 시도
-// 성공하면 hot-swap (새 연결부터 WebRTC 사용)
-func (cm *ConnectionManager) retryWebRTCLoop(ctx context.Context) {
-	for attempt := 0; ; attempt++ {
-		interval := retryInterval(attempt)
-		log.Printf("[Manager] WebRTC retry in %v (attempt %d)...", interval, attempt+1)
+func (cm *ConnectionManager) reconnectLoop(ctx context.Context) {
+	backoff := []time.Duration{10 * time.Second, 30 * time.Second, 1 * time.Minute, 2 * time.Minute}
+	idx := 0
 
+	for {
+		timer := time.NewTimer(backoff[idx])
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-time.After(interval):
+		case <-timer.C:
 		}
 
-		pc, err := cm.tryWebRTC(ctx)
-		if err != nil {
-			log.Printf("[Manager] WebRTC retry %d failed: %v", attempt+1, err)
-			continue
+		if pc, err := cm.tryWebRTC(ctx); err == nil {
+			log.Printf("[Manager] WebRTC reconnected, hot-swapping...")
+			cm.setPeerConnection(pc)
+			atomic.StoreInt32(&cm.activeTransport, int32(transportWebRTC))
+			go cm.monitorWebRTC(ctx, pc)
+			return
 		}
 
-		// 성공 — hot-swap: 새 연결부터 WebRTC 사용
-		log.Printf("[Manager] WebRTC reconnected! Hot-swapping to WebRTC transport")
-		cm.setPeerConnection(pc)
-		cm.activeTransport.Store(transportWebRTC)
-
-		// 새 WebRTC도 끊기면 다시 relay로
-		go cm.watchWebRTCAndFallback(ctx, pc)
-		return
+		if idx < len(backoff)-1 {
+			idx++
+		}
 	}
 }
 
@@ -295,8 +235,7 @@ func (cm *ConnectionManager) setPeerConnection(pc *webrtc.PeerConnection) {
 	cm.pcMu.Lock()
 	defer cm.pcMu.Unlock()
 	if cm.pc != nil {
-		cm.pc.Close()
+		_ = cm.pc.Close()
 	}
 	cm.pc = pc
 }
-

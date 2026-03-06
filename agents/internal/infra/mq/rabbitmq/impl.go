@@ -1,7 +1,10 @@
+// Package rabbitmq provides a RabbitMQ implementation of the core.Broker interface.
 package rabbitmq
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"agents/internal/core"
@@ -9,7 +12,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// rmqEvent: core.Event 인터페이스 구현체
+// rmqEvent implements the core.Event interface for RabbitMQ deliveries.
 type rmqEvent struct {
 	d amqp.Delivery
 }
@@ -18,31 +21,48 @@ func (e *rmqEvent) Payload() []byte { return e.d.Body }
 func (e *rmqEvent) Ack() error      { return e.d.Ack(false) }
 func (e *rmqEvent) Nack() error     { return e.d.Nack(false, false) }
 
-// RabbitMQBroker: core.Broker 인터페이스 구현체
+// RabbitMQBroker implements the core.Broker interface.
 type RabbitMQBroker struct {
-	url  string
+	url string
+
+	mu   sync.RWMutex
 	conn *amqp.Connection
 	ch   *amqp.Channel
 }
 
-func New(url string) *RabbitMQBroker {
+// NewBroker initializes a new RabbitMQ broker configuration.
+func NewBroker(url string) *RabbitMQBroker {
 	return &RabbitMQBroker{url: url}
 }
 
+// Connect establishes a connection and opens a channel to the RabbitMQ server.
 func (r *RabbitMQBroker) Connect() error {
-	var err error
-	// 연결 재시도 로직은 생략하고 단순 연결
-	r.conn, err = amqp.Dial(r.url)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	conn, err := amqp.Dial(r.url)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to dial rabbitmq: %w", err)
 	}
-	r.ch, err = r.conn.Channel()
-	return err
+	r.conn = conn
+
+	ch, err := conn.Channel()
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("failed to open rabbitmq channel: %w", err)
+	}
+	r.ch = ch
+
+	return nil
 }
 
+// Close gracefully shuts down the channel and the connection.
 func (r *RabbitMQBroker) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.ch != nil {
-		r.ch.Close()
+		_ = r.ch.Close()
 	}
 	if r.conn != nil {
 		return r.conn.Close()
@@ -50,19 +70,26 @@ func (r *RabbitMQBroker) Close() error {
 	return nil
 }
 
-// Publish: Client -> Java Server (Queue로 직접 발송 예시)
-func (r *RabbitMQBroker) Publish(ctx context.Context, topic string, msg []byte) error {
-	// 컨텍스트에 타임아웃이 없으면 안전을 위해 설정
-	_, ok := ctx.Deadline()
-	if !ok {
+// Publish sends a message to a specific queue using the default exchange.
+func (r *RabbitMQBroker) Publish(ctx context.Context, queue string, msg []byte) error {
+	r.mu.RLock()
+	ch := r.ch
+	r.mu.RUnlock()
+
+	if ch == nil {
+		return fmt.Errorf("broker not connected")
+	}
+
+	// Ensure a timeout exists for the operation
+	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 	}
 
-	return r.ch.PublishWithContext(ctx,
+	err := ch.PublishWithContext(ctx,
 		"",    // exchange (default)
-		topic, // routing key (queue name)
+		queue, // routing key (queue name)
 		false, // mandatory
 		false, // immediate
 		amqp.Publishing{
@@ -70,27 +97,40 @@ func (r *RabbitMQBroker) Publish(ctx context.Context, topic string, msg []byte) 
 			Body:        msg,
 		},
 	)
+	if err != nil {
+		return fmt.Errorf("failed to publish to queue %s: %w", queue, err)
+	}
+	return nil
 }
 
-// Subscribe: Worker <- Java Server
-func (r *RabbitMQBroker) Subscribe(ctx context.Context, topic string) (<-chan core.Event, error) {
-	// 큐가 없으면 생성 (Durable=true)
-	_, err := r.ch.QueueDeclare(topic, true, false, false, false, nil)
-	if err != nil {
-		return nil, err
+// Subscribe listens for messages on a specific queue and returns them as a channel of core.Events.
+// If the queue does not exist, it is declared as a durable queue.
+func (r *RabbitMQBroker) Subscribe(ctx context.Context, queue string) (<-chan core.Event, error) {
+	r.mu.RLock()
+	ch := r.ch
+	r.mu.RUnlock()
+
+	if ch == nil {
+		return nil, fmt.Errorf("broker not connected")
 	}
 
-	msgs, err := r.ch.Consume(
-		topic,
+	// Ensure the queue exists
+	_, err := ch.QueueDeclare(queue, true, false, false, false, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare queue %s: %w", queue, err)
+	}
+
+	msgs, err := ch.Consume(
+		queue,
 		"",    // consumer name
-		false, // auto-ack (수동 Ack 사용)
+		false, // auto-ack (manual Ack required)
 		false, // exclusive
 		false, // no-local
 		false, // no-wait
 		nil,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to start consuming from %s: %w", queue, err)
 	}
 
 	out := make(chan core.Event)

@@ -4,25 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"agents/internal/core"
 )
 
-// BrokerResultPublisher: core.Broker를 이용한 ResultPublisher 구현체
+// ResultPublisher defines the interface for sending command results back to the Hub.
+type ResultPublisher interface {
+	Publish(ctx context.Context, correlationID string, cmdType string, payload any) error
+}
+
+// BrokerResultPublisher implements ResultPublisher using a message broker.
 type BrokerResultPublisher struct {
 	Broker    core.Broker
 	QueueName string
 }
 
-func (p *BrokerResultPublisher) PublishResult(msg core.CommandMessage) error {
-	data, err := json.Marshal(msg)
+// Publish wraps a result in a CommandMessage and sends it to the configured result queue.
+func (p *BrokerResultPublisher) Publish(ctx context.Context, correlationID string, cmdType string, payload any) error {
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal command message: %w", err)
+		return fmt.Errorf("failed to marshal result payload: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	msg := core.CommandMessage{
+		CmdType:       cmdType,
+		CorrelationID: correlationID,
+		Payload:       data,
+		Timestamp:     0, // Will be set by core or broker if needed
+	}
 
-	return p.Broker.Publish(ctx, p.QueueName, data)
+	envelope, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result message: %w", err)
+	}
+
+	return p.Broker.Publish(ctx, p.QueueName, envelope)
 }

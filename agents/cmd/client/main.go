@@ -3,36 +3,38 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"agents/internal/app/client"
 	"agents/internal/metrics"
 )
 
 func main() {
-	cfg := client.LoadConfig()
-
-	hubClient := &client.HubClient{
-		BaseURL:    cfg.HubURL,
-		HTTPClient: &http.Client{Timeout: 60 * time.Second},
+	// 1. Load configuration
+	cfg, err := client.LoadConfig()
+	if err != nil {
+		log.Fatalf("CRITICAL: Configuration error: %v", err)
 	}
 
+	// 2. Initialize components
+	hubClient := client.NewHubClient(cfg.HubURL)
 	traffic := metrics.NewTrafficStore()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	// 3. Setup context for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
+	// 4. Start background reporter
 	metrics.StartReporter(ctx, cfg.HubURL, "client", cfg.ClientKey, traffic)
 
 	log.Println("=== PeerCaaS Client Agent ===")
-	log.Printf("Container: %s | Hub: %s", cfg.ContainerID, cfg.HubURL)
+	log.Printf("[Main] Container: %s | Hub: %s", cfg.ContainerID, cfg.HubURL)
 
+	// 5. Run connection manager
 	manager := client.NewConnectionManager(cfg, hubClient, traffic)
 	if err := manager.Run(ctx); err != nil {
-		log.Fatalf("ConnectionManager failed: %v", err)
+		log.Fatalf("CRITICAL: ConnectionManager stopped unexpectedly: %v", err)
 	}
 }

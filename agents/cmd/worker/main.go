@@ -17,60 +17,62 @@ import (
 )
 
 func main() {
-	// Parse command line flags
+	// 1. Parse command line flags
 	resetIP := flag.Bool("reset", false, "Reset the registered IP for this worker on the Hub")
 	flag.Parse()
 
-	// Load configuration
-	cfg := config.Load("worker")
+	// 2. Load configuration
+	cfg, err := config.Load("worker")
+	if err != nil {
+		log.Fatalf("CRITICAL: Failed to load configuration: %v", err)
+	}
+
 	if cfg.Worker.WorkerID == "" {
 		log.Fatal("CRITICAL: WORKER_ID environment variable is missing")
 	}
 
-	// Initialize and call Hub Init API
+	// 3. Initialize Hub connection
 	hubClient := worker.NewHubClient(cfg.Worker.HubURL)
 
 	if *resetIP {
-		log.Printf("Resetting IP for worker [%s] on Hub...", cfg.Worker.WorkerID)
+		log.Printf("[Main] Resetting IP for worker %s on Hub...", cfg.Worker.WorkerID)
 		if err := hubClient.ResetWorkerIP(cfg.Worker.WorkerID, cfg.Worker.WorkerKey); err != nil {
-			log.Fatalf("CRITICAL: Failed to reset IP on hub: %v", err)
+			log.Fatalf("CRITICAL: Failed to reset IP: %v", err)
 		}
-		log.Println("Successfully reset IP. Exiting.")
+		log.Println("[Main] Successfully reset IP. Exiting.")
 		return
 	}
 
 	if err := hubClient.InitializeWorker(cfg.Worker.WorkerID, cfg.Worker.WorkerKey); err != nil {
-		log.Fatalf("CRITICAL: Failed to initialize worker with hub: %v", err)
+		log.Fatalf("CRITICAL: Worker initialization failed: %v", err)
 	}
 
-	// Initialize infrastructure
-	broker := rabbitmq.New(cfg.RabbitMQ.GetURL())
+	// 4. Initialize Infrastructure
+	broker := rabbitmq.NewBroker(cfg.RabbitMQ.GetURL())
 	if err := broker.Connect(); err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+		log.Fatalf("CRITICAL: Failed to connect to RabbitMQ: %v", err)
 	}
 	defer broker.Close()
 
 	dockerCli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		log.Fatalf("Failed to create Docker client: %v", err)
+		log.Fatalf("CRITICAL: Failed to create Docker client: %v", err)
 	}
 	defer dockerCli.Close()
 
-	// Initialize Metrics Persistence & Shipping
 	repo, err := metrics.NewMetricRepository("metrics.db")
 	if err != nil {
-		log.Fatalf("Failed to initialize SQLite: %v", err)
+		log.Fatalf("CRITICAL: Failed to initialize metrics database: %v", err)
 	}
 	defer repo.Close()
 
-	// Use default local VM endpoint if not configured
 	vmURL := cfg.Worker.VMURL
 	if vmURL == "" {
 		vmURL = "http://localhost:8428/write"
 	}
 	shipper := metrics.NewMetricShipper(vmURL, cfg.Worker.VMUser, cfg.Worker.VMPass)
 
-	// Initialize shared services
+	// 5. Initialize Services
 	store := worker.NewContainerStore()
 	traffic := metrics.NewTrafficStore()
 	latency := metrics.NewLatencyMeasurer()
@@ -79,7 +81,7 @@ func main() {
 		QueueName: cfg.Worker.ResultQueue,
 	}
 
-	// Initialize Agent
+	// 6. Initialize Agent
 	agent := worker.NewAgent(
 		broker,
 		cfg.Worker,
@@ -92,11 +94,25 @@ func main() {
 		store,
 	)
 
-	// Register command handlers
+	// 7. Register Command Handlers
+	registerHandlers(agent, dockerCli, publisher, store, traffic, broker, cfg.Worker.WorkerID)
+
+	// 8. Run Agent with graceful shutdown support
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	log.Printf("=== PeerCaaS Worker Agent [%s] Ready ===", cfg.Worker.WorkerID)
+
+	if err := agent.Run(ctx, cfg.Worker.WorkerID, traffic, latency); err != nil {
+		log.Printf("[Main] Worker stopped with error: %v", err)
+	}
+}
+
+func registerHandlers(agent *worker.WorkerAgent, dockerCli *client.Client, publisher worker.ResultPublisher, store *worker.ContainerStore, traffic *metrics.TrafficStore, broker *rabbitmq.RabbitMQBroker, workerID string) {
 	agent.Register("CREATE_CONTAINER", &worker.CreateContainerHandler{
 		DockerCli: dockerCli,
 		Publisher: publisher,
-		WorkerId:  cfg.Worker.WorkerID,
+		WorkerID:  workerID,
 		Store:     store,
 	})
 	agent.Register("DELETE_CONTAINER", &worker.DeleteContainerHandler{
@@ -106,7 +122,7 @@ func main() {
 	agent.Register("CONNECT_WEBRTC", &worker.ConnectWebRTCHandler{
 		Store:     store,
 		Broker:    broker,
-		WorkerID:  cfg.Worker.WorkerID,
+		WorkerID:  workerID,
 		DockerCli: dockerCli,
 		Traffic:   traffic,
 	})
@@ -115,15 +131,4 @@ func main() {
 		DockerCli: dockerCli,
 		Traffic:   traffic,
 	})
-
-	// Graceful shutdown context
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	log.Printf("=== PeerCaaS Worker Agent [%s] Ready ===", cfg.Worker.WorkerID)
-
-	// Run the agent
-	if err := agent.Run(ctx, cfg.Worker.WorkerID, traffic, latency); err != nil {
-		log.Printf("Worker terminated with error: %v", err)
-	}
 }

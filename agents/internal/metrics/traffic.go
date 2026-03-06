@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-// ContainerTraffic tracks bytes sent/received for a single container.
+// ContainerTraffic tracks bidirectional byte counts, connection attempts, and activity timestamps for a specific container.
+// It is thread-safe and uses atomic operations for counters to ensure high performance under load.
 type ContainerTraffic struct {
 	ContainerID string
 	StartTime   time.Time
@@ -23,6 +24,7 @@ type ContainerTraffic struct {
 	transport   string
 }
 
+// newContainerTraffic initializes a new traffic record.
 func newContainerTraffic(containerID, transport string) *ContainerTraffic {
 	t := &ContainerTraffic{
 		ContainerID: containerID,
@@ -33,25 +35,31 @@ func newContainerTraffic(containerID, transport string) *ContainerTraffic {
 	return t
 }
 
-// AddTx increments outgoing (local→remote) byte count.
+// AddTx records outgoing bytes.
 func (t *ContainerTraffic) AddTx(n int64) {
 	t.tx.Add(n)
 	t.lastActive.Store(time.Now().UnixNano())
 }
 
-// AddRx increments incoming (remote→local) byte count.
+// AddRx records incoming bytes.
 func (t *ContainerTraffic) AddRx(n int64) {
 	t.rx.Add(n)
 	t.lastActive.Store(time.Now().UnixNano())
 }
 
-// IncrConn increments the connection counter by 1.
+// IncrConn increments the connection counter.
 func (t *ContainerTraffic) IncrConn() { t.connCount.Add(1) }
 
-func (t *ContainerTraffic) Tx() int64        { return t.tx.Load() }
-func (t *ContainerTraffic) Rx() int64        { return t.rx.Load() }
+// Tx returns the total transmitted bytes.
+func (t *ContainerTraffic) Tx() int64 { return t.tx.Load() }
+
+// Rx returns the total received bytes.
+func (t *ContainerTraffic) Rx() int64 { return t.rx.Load() }
+
+// ConnCount returns the total number of connections handled.
 func (t *ContainerTraffic) ConnCount() int32 { return t.connCount.Load() }
 
+// LastActive returns the time of the most recent activity.
 func (t *ContainerTraffic) LastActive() time.Time {
 	ns := t.lastActive.Load()
 	if ns == 0 {
@@ -60,35 +68,37 @@ func (t *ContainerTraffic) LastActive() time.Time {
 	return time.Unix(0, ns)
 }
 
+// SetTransport updates the transport type (e.g., "WEBRTC", "RELAY").
 func (t *ContainerTraffic) SetTransport(transport string) {
 	t.transportMu.Lock()
+	defer t.transportMu.Unlock()
 	t.transport = transport
-	t.transportMu.Unlock()
 }
 
+// Transport returns the current transport type.
 func (t *ContainerTraffic) Transport() string {
 	t.transportMu.RLock()
 	defer t.transportMu.RUnlock()
 	return t.transport
 }
 
-// TrafficStore is a thread-safe map of containerID → ContainerTraffic.
-// Entries are never removed — historical data is preserved.
+// TrafficStore maintains a thread-safe registry of traffic statistics for all active containers.
 type TrafficStore struct {
 	mu   sync.RWMutex
 	data map[string]*ContainerTraffic
 }
 
+// NewTrafficStore creates a new traffic registry.
 func NewTrafficStore() *TrafficStore {
 	return &TrafficStore{data: make(map[string]*ContainerTraffic)}
 }
 
-// GetOrCreate returns the existing entry or creates a new one.
-// If transport is non-empty, the transport field is updated.
+// GetOrCreate retrieves an existing traffic record or creates a new one if not found.
 func (s *TrafficStore) GetOrCreate(containerID, transport string) *ContainerTraffic {
 	s.mu.RLock()
 	t, ok := s.data[containerID]
 	s.mu.RUnlock()
+
 	if ok {
 		if transport != "" {
 			t.SetTransport(transport)
@@ -98,6 +108,7 @@ func (s *TrafficStore) GetOrCreate(containerID, transport string) *ContainerTraf
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Double-check after acquiring write lock
 	if t, ok = s.data[containerID]; ok {
 		return t
 	}
@@ -106,7 +117,7 @@ func (s *TrafficStore) GetOrCreate(containerID, transport string) *ContainerTraf
 	return t
 }
 
-// Get returns the existing traffic entry for a container.
+// Get retrieves a traffic record by container ID.
 func (s *TrafficStore) Get(containerID string) (*ContainerTraffic, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -114,7 +125,7 @@ func (s *TrafficStore) Get(containerID string) (*ContainerTraffic, bool) {
 	return t, ok
 }
 
-// All returns a snapshot of all ContainerTraffic entries.
+// All returns a slice containing all traffic records currently in the store.
 func (s *TrafficStore) All() []*ContainerTraffic {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -125,7 +136,7 @@ func (s *TrafficStore) All() []*ContainerTraffic {
 	return result
 }
 
-// Totals returns the aggregate Tx and Rx bytes across all containers.
+// Totals calculates the aggregate transmitted and received bytes across all containers.
 func (s *TrafficStore) Totals() (tx, rx int64) {
 	for _, t := range s.All() {
 		tx += t.Tx()
@@ -134,7 +145,7 @@ func (s *TrafficStore) Totals() (tx, rx int64) {
 	return
 }
 
-// countingWriter wraps an io.Writer and invokes add(n) after each Write.
+// countingWriter intercepts writes to update byte counters.
 type countingWriter struct {
 	w   io.Writer
 	add func(int64)
@@ -142,66 +153,75 @@ type countingWriter struct {
 
 func (c *countingWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
-	c.add(int64(n))
+	if n > 0 {
+		c.add(int64(n))
+	}
 	return n, err
 }
 
-// BridgeWithTraffic performs a bidirectional relay between remote and local,
-// counting bytes in both directions.
-//
-//	TX (local→remote): bytes written to remote   → stats.AddTx
-//	RX (remote→local): bytes written to local    → stats.AddRx
-//
-// Returns after one direction closes; both connections are closed before returning.
+// BridgeWithTraffic establishes a bidirectional relay between two ReadWriteClosers.
+// It tracks metrics for the connection and logs throughput statistics upon completion.
 func BridgeWithTraffic(remote, local io.ReadWriteCloser, stats *ContainerTraffic) {
+	defer func() {
+		_ = remote.Close()
+		_ = local.Close()
+	}()
+
 	cwRemote := &countingWriter{w: remote, add: stats.AddTx}
 	cwLocal := &countingWriter{w: local, add: stats.AddRx}
 
 	bridgeStart := time.Now()
-	log.Printf("[Timing][Bridge] Started for container=%s transport=%s", stats.ContainerID, stats.Transport())
+	log.Printf("[Traffic] Bridge started for container=%s transport=%s", stats.ContainerID, stats.Transport())
 
-	done := make(chan struct{}, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Local to Remote (TX)
 	go func() {
+		defer wg.Done()
 		start := time.Now()
 		txBefore := stats.Tx()
-		io.Copy(cwRemote, local) // local → remote (TX)
+		_, err := io.Copy(cwRemote, local)
 		elapsed := time.Since(start)
 		txBytes := stats.Tx() - txBefore
-		log.Printf("[Timing][Bridge] TX done: %s in %v (%.1f KB/s) container=%s",
+		if err != nil && err != io.EOF {
+			log.Printf("[Traffic] TX error for container=%s: %v", stats.ContainerID, err)
+		}
+		log.Printf("[Traffic] TX finished: %s in %v (%.1f KB/s) container=%s",
 			FormatBytes(txBytes), elapsed, float64(txBytes)/1024/elapsed.Seconds(), stats.ContainerID)
-		done <- struct{}{}
 	}()
+
+	// Remote to Local (RX)
 	go func() {
+		defer wg.Done()
 		start := time.Now()
 		rxBefore := stats.Rx()
-		io.Copy(cwLocal, remote) // remote → local (RX)
+		_, err := io.Copy(cwLocal, remote)
 		elapsed := time.Since(start)
 		rxBytes := stats.Rx() - rxBefore
-		log.Printf("[Timing][Bridge] RX done: %s in %v (%.1f KB/s) container=%s",
+		if err != nil && err != io.EOF {
+			log.Printf("[Traffic] RX error for container=%s: %v", stats.ContainerID, err)
+		}
+		log.Printf("[Traffic] RX finished: %s in %v (%.1f KB/s) container=%s",
 			FormatBytes(rxBytes), elapsed, float64(rxBytes)/1024/elapsed.Seconds(), stats.ContainerID)
-		done <- struct{}{}
 	}()
-	<-done
-	log.Printf("[Timing][Bridge] Closing after %v container=%s", time.Since(bridgeStart), stats.ContainerID)
-	remote.Close()
-	local.Close()
+
+	wg.Wait()
+	log.Printf("[Traffic] Bridge closed after %v container=%s", time.Since(bridgeStart), stats.ContainerID)
 }
 
-// FormatBytes returns a human-readable byte count string.
+// FormatBytes returns a human-readable string representation of a byte count.
 func FormatBytes(b int64) string {
 	const (
-		KB = 1024
-		MB = 1024 * KB
-		GB = 1024 * MB
+		unit = 1024
 	)
-	switch {
-	case b >= GB:
-		return fmt.Sprintf("%.2f GB", float64(b)/float64(GB))
-	case b >= MB:
-		return fmt.Sprintf("%.2f MB", float64(b)/float64(MB))
-	case b >= KB:
-		return fmt.Sprintf("%.1f KB", float64(b)/float64(KB))
-	default:
+	if b < unit {
 		return fmt.Sprintf("%d B", b)
 	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
