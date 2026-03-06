@@ -143,6 +143,9 @@
                 if (response.ok && result.code === 200) {
                     localStorage.setItem('accessToken', result.data.accessToken);
                     localStorage.setItem('nickname', result.data.nickname);
+                    // Set cookie for iframe/template authentication
+                    document.cookie = `token=${result.data.accessToken}; path=/; max-age=86400; SameSite=Lax`;
+                    
                     location.href = '/';
                 } else {
                     alert(result.message || 'Signup failed');

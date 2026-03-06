@@ -108,8 +108,20 @@
         <!-- Worker Tab -->
         <div id="worker-tab" class="tab-content">
             <div class="card">
-                <div class="card-title">Worker Node Settings</div>
-                <p style="color: var(--text-muted); text-align: center; padding: 2rem;">Worker node configuration options will be available soon.</p>
+                <div class="card-title">Worker Agent Access</div>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Use this key to authenticate your worker-agent. This key is required for initial registration and IP mapping.</p>
+                <div class="form-group">
+                    <label>Worker Key</label>
+                    <div class="key-box">
+                        <span id="worker-key-display">••••••••••••••••</span>
+                        <button class="copy-btn" id="copy-worker-key-btn"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg></button>
+                    </div>
+                </div>
+                <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                    <div style="color: var(--red); font-weight: 700; margin-bottom: 0.5rem;">Danger Zone</div>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Regenerating the worker key will immediately invalidate the existing one. Existing worker agents will lose authentication.</p>
+                    <button class="btn btn-outline" id="regen-worker-key-btn" style="color: var(--red); border-color: rgba(239,68,68,0.3);">Regenerate Worker Key</button>
+                </div>
             </div>
         </div>
     </div>
@@ -137,6 +149,7 @@
                 document.getElementById('nickname-input').value = userData.nickname;
                 document.getElementById('email-display').value = userData.email;
                 document.getElementById('client-key-display').textContent = userData.clientKey;
+                document.getElementById('worker-key-display').textContent = userData.workerKey;
             } catch (e) {}
         }
 
@@ -174,6 +187,25 @@
 
         document.getElementById('copy-key-btn').addEventListener('click', () => {
             navigator.clipboard.writeText(document.getElementById('client-key-display').textContent);
+            alert('Copied to clipboard.');
+        });
+
+        document.getElementById('regen-worker-key-btn').addEventListener('click', async () => {
+            if (!confirm('Regenerate Worker Key? This will invalidate current worker sessions.')) return;
+            const token = localStorage.getItem('accessToken');
+            try {
+                const res = await fetch('/api/v1/member/me/worker-key', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const result = await res.json();
+                document.getElementById('worker-key-display').textContent = result.data;
+                alert('Worker Key regenerated.');
+            } catch (e) { alert('Failed to regenerate worker key.'); }
+        });
+
+        document.getElementById('copy-worker-key-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(document.getElementById('worker-key-display').textContent);
             alert('Copied to clipboard.');
         });
 
