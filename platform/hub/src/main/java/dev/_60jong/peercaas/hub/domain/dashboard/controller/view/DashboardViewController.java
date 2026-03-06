@@ -33,18 +33,13 @@ public class DashboardViewController {
     @GetMapping("/worker")
     public String workerDashboard(@Authenticated Long memberId, Model model) {
         Member member = memberService.findById(memberId);
+        String generatedWorkerId = member.getGeneratedWorkerId();
         
-        workerAgentRepository.findByMemberId(memberId).ifPresentOrElse(
-            worker -> {
-                model.addAttribute("isWorker", true);
-                model.addAttribute("workerId", worker.getWorkerId());
-                model.addAttribute("key", member.getWorkerKey());
-            },
-            () -> {
-                model.addAttribute("isWorker", false);
-                model.addAttribute("key", member.getWorkerKey());
-            }
-        );
+        model.addAttribute("key", member.getWorkerKey());
+        model.addAttribute("workerId", generatedWorkerId);
+        
+        boolean isRegistered = workerAgentRepository.findByWorkerId(generatedWorkerId).isPresent();
+        model.addAttribute("isWorker", isRegistered);
         
         return "dashboard/worker";
     }

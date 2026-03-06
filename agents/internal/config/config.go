@@ -2,6 +2,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"strings"
@@ -57,6 +58,16 @@ func (r *RabbitMQConfig) GetURL() string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%d%s",
 		r.Username, r.Password, r.Host, r.Port, r.VHost,
 	)
+}
+
+// GenerateWorkerID creates a deterministic, unique ID based on the WorkerKey.
+func (w *WorkerConfig) GenerateWorkerID() string {
+	if w.WorkerKey == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(w.WorkerKey))
+	// Use first 12 characters of the hex hash for a readable yet unique ID (prefix wk- for worker)
+	return fmt.Sprintf("wk-%x", hash)[:15]
 }
 
 // Load reads the configuration from files and environment variables.

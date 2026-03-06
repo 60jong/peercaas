@@ -63,6 +63,27 @@ public class Member extends BaseTimeEntity {
         this.workerKey = generateKey();
     }
 
+    /**
+     * Generate deterministic worker ID based on workerKey (matches Go implementation)
+     */
+    public String getGeneratedWorkerId() {
+        if (this.workerKey == null) return "";
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(this.workerKey.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            // wk- + first 12 chars of hash (total 15)
+            return ("wk-" + hexString.toString()).substring(0, 15);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     public void resetPassword(String password) {
         if (!StringUtils.hasText(password)) {
             throw new BaseException(ILLEGAL_ARGUMENT, "비밀번호는 빈 값일 수 없습니다.");
