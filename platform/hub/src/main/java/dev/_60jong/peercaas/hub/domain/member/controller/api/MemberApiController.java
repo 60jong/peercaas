@@ -24,7 +24,8 @@ public class MemberApiController {
                 member.getId(),
                 member.getEmail(),
                 member.getNickname(),
-                member.getClientKey()
+                member.getClientKey(),
+                member.getWorkerKey()
         ));
     }
 
@@ -39,6 +40,13 @@ public class MemberApiController {
         memberService.resetClientKey(memberId);
         Member member = memberService.findById(memberId);
         return ApiResponse.success(member.getClientKey());
+    }
+
+    @PostMapping("/me/worker-key")
+    public ApiResponse<String> resetWorkerKey(@Authenticated Long memberId) {
+        memberService.resetWorkerKey(memberId);
+        Member member = memberService.findById(memberId);
+        return ApiResponse.success(member.getWorkerKey());
     }
 
 }

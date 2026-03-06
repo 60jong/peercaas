@@ -19,8 +19,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import static dev._60jong.peercaas.hub.domain.agent.config.AgentConstants.CLIENT_AGENT_KEY_NAME;
-import static dev._60jong.peercaas.hub.domain.agent.config.AgentConstants.WORKER_AGENT_KEY_NAME;
 import static dev._60jong.peercaas.hub.global.exception.auth.AuthExceptionCode.*;
 import static dev._60jong.peercaas.hub.global.exception.member.MemberExceptionCode.ENTITY_NOT_FOUND;
 
@@ -50,33 +48,6 @@ public class AuthService {
         this.remainingDue = remainingDue;
     }
 
-    /**
-     * Client Agent의 Key를 발급
-     */
-    public GetKeyResponse issueClientKeyByMemberId(Long memberId) {
-        if (!memberService.existsById(memberId)) {
-            throw new BaseException(ENTITY_NOT_FOUND, "Member not found");
-        }
-
-        String key = KeyGenerator.generate();
-        cacheService.put(CLIENT_AGENT_KEY_NAME, key, memberId);
-
-        return new GetKeyResponse(key);
-    }
-
-    /**
-     * Worker Agent의 Key를 발급
-     */
-    public GetKeyResponse issueWorkerKeyByMemberId(Long memberId) {
-        if (!memberService.existsById(memberId)) {
-            throw new BaseException(ENTITY_NOT_FOUND, "Member not found");
-        }
-
-        String key = KeyGenerator.generate();
-        cacheService.put(WORKER_AGENT_KEY_NAME, key, memberId);
-
-        return new GetKeyResponse(key);
-    }
     /**
      * 회원가입
      */

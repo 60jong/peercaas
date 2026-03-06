@@ -35,6 +35,7 @@ public class Member extends BaseTimeEntity {
     private AccountType accountType;
 
     private String clientKey;
+    private String workerKey;
 
     @OneToMany(mappedBy = "requester")
     private List<Deployment> requestedDeployments = new ArrayList<>();
@@ -44,17 +45,22 @@ public class Member extends BaseTimeEntity {
         this.nickname = nickname;
         this.email = email;
         this.password = password;
-        this.clientKey = generateClientKey();
+        this.clientKey = generateKey();
+        this.workerKey = generateKey();
     }
 
     // == Methods == //
 
-    private String generateClientKey() {
+    private String generateKey() {
         return java.util.UUID.randomUUID().toString().replace("-", "");
     }
 
     public void resetClientKey() {
-        this.clientKey = generateClientKey();
+        this.clientKey = generateKey();
+    }
+
+    public void resetWorkerKey() {
+        this.workerKey = generateKey();
     }
 
     public void resetPassword(String password) {

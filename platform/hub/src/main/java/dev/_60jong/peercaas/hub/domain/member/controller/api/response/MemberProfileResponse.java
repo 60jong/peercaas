@@ -12,4 +12,5 @@ public class MemberProfileResponse {
     private String email;
     private String nickname;
     private String clientKey;
+    private String workerKey;
 }

@@ -5,9 +5,11 @@ import dev._60jong.peercaas.hub.domain.auth.controller.api.request.ReissueReques
 import dev._60jong.peercaas.hub.domain.auth.controller.api.request.ResetPasswordRequest;
 import dev._60jong.peercaas.hub.domain.auth.controller.api.request.NormalSigninRequest;
 import dev._60jong.peercaas.hub.domain.auth.controller.api.request.NormalSignupRequest;
+import dev._60jong.peercaas.hub.domain.auth.controller.api.response.GetKeyResponse;
 import dev._60jong.peercaas.hub.domain.auth.controller.api.response.TokenResponse;
 import dev._60jong.peercaas.hub.domain.auth.service.AuthService;
-import dev._60jong.peercaas.hub.domain.auth.controller.api.response.GetKeyResponse;
+import dev._60jong.peercaas.hub.domain.member.model.entity.Member;
+import dev._60jong.peercaas.hub.domain.member.service.MemberService;
 import dev._60jong.peercaas.hub.global.aspect.auth.Authenticated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +20,26 @@ import org.springframework.web.bind.annotation.*;
 public class AuthApiController {
 
     private final AuthService authService;
+    private final MemberService memberService;
 
     /**
      * Client 등록용 Key 발급
      */
     @GetMapping("/agent/client/key")
-    public ApiResponse<GetKeyResponse> getClientKey(@RequestParam Long memberId) {
-        return ApiResponse.success(authService.issueClientKeyByMemberId(memberId));
+    public ApiResponse<GetKeyResponse> getClientKey(@Authenticated Long memberId) {
+        Member member = memberService.findById(memberId);
+        return ApiResponse.success(new GetKeyResponse(member.getClientKey()));
     }
 
     /**
      * Worker 등록 용 Key 발급
      */
     @GetMapping("/agent/worker/key")
-    public ApiResponse<GetKeyResponse> getWorkerKey(@RequestParam Long memberId) {
-        return ApiResponse.success(authService.issueWorkerKeyByMemberId(memberId));
+    public ApiResponse<GetKeyResponse> getWorkerKey(@Authenticated Long memberId) {
+        Member member = memberService.findById(memberId);
+        return ApiResponse.success(new GetKeyResponse(member.getWorkerKey()));
     }
+
 
     /**
      * 회원가입 - 일반

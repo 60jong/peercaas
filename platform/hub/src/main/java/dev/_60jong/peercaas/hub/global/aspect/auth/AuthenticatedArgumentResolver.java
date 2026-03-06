@@ -59,11 +59,23 @@ public class AuthenticatedArgumentResolver implements HandlerMethodArgumentResol
     }
 
     private String extractToken(NativeWebRequest webRequest) {
+        // 1. Authorization Header
         String header = webRequest.getHeader(AUTHORIZATION_HEADER);
-
         if (StringUtils.hasText(header) && header.startsWith(BEARER_PREFIX)) {
             return header.substring(BEARER_PREFIX.length());
         }
+
+        // 2. Cookie (for Template/View requests where header isn't easily sent)
+        jakarta.servlet.http.HttpServletRequest httpServletRequest = 
+            webRequest.getNativeRequest(jakarta.servlet.http.HttpServletRequest.class);
+        if (httpServletRequest != null && httpServletRequest.getCookies() != null) {
+            for (jakarta.servlet.http.Cookie cookie : httpServletRequest.getCookies()) {
+                if ("token".equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+
         return null;
     }
 }

@@ -1,13 +1,10 @@
 package dev._60jong.peercaas.hub.domain.member.service;
 
 import dev._60jong.peercaas.hub.domain.auth.util.PasswordEncryptor;
-import dev._60jong.peercaas.hub.domain.member.controller.api.request.CreateMemberRequest;
-import dev._60jong.peercaas.hub.domain.member.controller.api.response.CreateMemberResponse;
 import dev._60jong.peercaas.hub.domain.member.model.entity.Member;
 import dev._60jong.peercaas.hub.domain.member.model.vo.MemberParam;
 import dev._60jong.peercaas.hub.domain.member.repository.MemberRepository;
 import dev._60jong.peercaas.hub.global.exception.BaseException;
-import dev._60jong.peercaas.hub.global.exception.member.MemberExceptionCode;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -21,7 +18,6 @@ import static dev._60jong.peercaas.hub.global.exception.member.MemberExceptionCo
 public class MemberService {
 
     private final MemberRepository memberRepository;
-
     private final PasswordEncryptor passwordEncryptor;
 
     public boolean existsById(Long memberId) {
@@ -41,8 +37,7 @@ public class MemberService {
                 .password(param.getPassword())
                 .build();
 
-        memberRepository.save(member);
-        return member;
+        return memberRepository.save(member);
     }
 
     @Transactional
@@ -57,6 +52,12 @@ public class MemberService {
         member.resetClientKey();
     }
 
+    @Transactional
+    public void resetWorkerKey(Long memberId) {
+        Member member = findById(memberId);
+        member.resetWorkerKey();
+    }
+
     public Member findByEmail(String email) {
         return memberRepository.findByEmail(email)
                 .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "존재하지 않는 Email입니다."));
@@ -64,6 +65,16 @@ public class MemberService {
 
     public boolean existsByEmail(String email) {
         return memberRepository.existsByEmail(email);
+    }
+
+    public Member findByClientKey(String clientKey) {
+        return memberRepository.findByClientKey(clientKey)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid client key"));
+    }
+
+    public Member findByWorkerKey(String workerKey) {
+        return memberRepository.findByWorkerKey(workerKey)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid worker key"));
     }
 
 }
