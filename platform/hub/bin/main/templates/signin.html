@@ -138,9 +138,14 @@
                 if (response.ok && result.code === 200) {
                     localStorage.setItem('accessToken', result.data.accessToken);
                     localStorage.setItem('nickname', result.data.nickname);
+                    // Set cookie for iframe/template authentication
+                    document.cookie = `token=${result.data.accessToken}; path=/; max-age=86400; SameSite=Lax`;
+
                     const redirect = new URLSearchParams(location.search).get('redirect');
+
                     location.href = redirect || '/';
                 } else {
+
                     alert(result.message || 'Signin failed');
                 }
             } catch (error) {

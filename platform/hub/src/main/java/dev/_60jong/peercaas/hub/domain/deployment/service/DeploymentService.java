@@ -44,27 +44,26 @@ public class DeploymentService {
 
     @Transactional
     public CreateDeploymentResponse deploy(CreateDeploymentRequest request) {
-        String traceId = KeyGenerator.generate();
+        String correlationId = KeyGenerator.generate();
 
         // 1. 타겟 Worker Agent 고르기
-        DeploymentParam tempParam = request.toEntityParam(traceId, null, null);
+        DeploymentParam tempParam = request.toEntityParam(correlationId, null, null);
         ScoringContext scoringContext = ScoringContext.builder()
                 .clientIpAddress(request.getClientIpAddress())
                 .requiredCpu(tempParam.getCpuLimit())
                 .requiredMemoryMb(tempParam.getMemoryMbLimit())
                 .build();
 
-//        WorkerAgent targetWorker = workerScheduler.selectBestWorker(scoringContext)
-//                .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
-//
-//        String targetWorkerId = targetWorker.getWorkerId();
-        String targetWorkerId = "test-worker";
-        log.info("[Deployment Start] TraceID: {}, Worker: {}", traceId, targetWorkerId);
+        WorkerAgent targetWorker = workerScheduler.selectBestWorker(scoringContext)
+                .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "No available workers found"));
+
+        String targetWorkerId = targetWorker.getWorkerId();
+        log.info("[Deployment Start] CorrelationID: {}, Worker: {}", correlationId, targetWorkerId);
 
         // 2. API DTO -> Entity 변환 및 저장 (상태: PENDING)
         Member requester = memberService.findById(request.getRequesterId());
 
-        Deployment deployment = createDeployment(request.toEntityParam(traceId, targetWorkerId, requester));
+        Deployment deployment = createDeployment(request.toEntityParam(correlationId, targetWorkerId, requester));
         deploymentRepository.save(deployment);
 
         // 3. Entity -> WorkerPayload 변환
@@ -76,7 +75,7 @@ public class DeploymentService {
         // 4. MQ 전송
         CommandMessage<CreateDeploymentRequestPayload> message = CommandMessage.of(
                 "CREATE_CONTAINER",
-                traceId,
+                correlationId,
                 payload
         );
         workerMessageSender.send(targetWorkerId, message);
@@ -86,7 +85,7 @@ public class DeploymentService {
 
         return new CreateDeploymentResponse(
                 deployment.getId(),
-                traceId,
+                correlationId,
                 deployment.getStatus(),
                 deployment.getWorkerId()
         );
@@ -109,9 +108,9 @@ public class DeploymentService {
     }
 
     @Transactional
-    public void updateStatusByTraceId(String traceId, DeploymentStatus status) {
-        Deployment deployment = deploymentRepository.findByTraceId(traceId)
-                .orElseThrow(() -> new EntityNotFoundException("Deployment not found with traceId: " + traceId));
+    public void updateStatusByCorrelationId(String correlationId, DeploymentStatus status) {
+        Deployment deployment = deploymentRepository.findByCorrelationId(correlationId)
+                .orElseThrow(() -> new EntityNotFoundException("Deployment not found with correlationId: " + correlationId));
 
         deployment.updateStatus(status);
     }
@@ -120,8 +119,8 @@ public class DeploymentService {
      * 배포 성공 처리: Container 레코드 생성 + Deployment 상태 RUNNING으로 변경
      */
     @Transactional
-    public void updateRunningInfo(String traceId, DeploymentResultPayload result) {
-        Deployment deployment = deploymentRepository.findByTraceId(traceId)
+    public void updateRunningInfo(String correlationId, DeploymentResultPayload result) {
+        Deployment deployment = deploymentRepository.findByCorrelationId(correlationId)
                 .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "Deployment not found"));
 
         containerService.register(deployment, result);
@@ -129,8 +128,8 @@ public class DeploymentService {
     }
 
     @Transactional
-    public void deleteByTraceId(String traceId, Long requesterId) {
-        Deployment deployment = deploymentRepository.findByTraceId(traceId)
+    public void deleteByCorrelationId(String correlationId, Long requesterId) {
+        Deployment deployment = deploymentRepository.findByCorrelationId(correlationId)
                 .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "Deployment not found"));
 
         if (!deployment.getRequester().getId().equals(requesterId)) {
@@ -141,7 +140,7 @@ public class DeploymentService {
         if (deployment.getContainer() != null) {
             CommandMessage<DeleteContainerPayload> message = CommandMessage.of(
                     "DELETE_CONTAINER",
-                    traceId,
+                    correlationId,
                     new DeleteContainerPayload(deployment.getContainer().getContainerId())
             );
             workerMessageSender.send(deployment.getWorkerId(), message);
@@ -158,8 +157,8 @@ public class DeploymentService {
     }
 
     @Transactional
-    public DeploymentInfoResponse getByTraceId(String traceId) {
-        Deployment deployment = deploymentRepository.findByTraceId(traceId)
+    public DeploymentInfoResponse getByCorrelationId(String correlationId) {
+        Deployment deployment = deploymentRepository.findByCorrelationId(correlationId)
                 .orElseThrow(() -> new BaseException(ENTITY_NOT_FOUND, "Deployment not found"));
 
         return DeploymentInfoResponse.from(deployment);
@@ -170,7 +169,7 @@ public class DeploymentService {
      */
     private Deployment createDeployment(DeploymentParam param) {
         return Deployment.builder()
-                .traceId(param.getTraceId())
+                .correlationId(param.getCorrelationId())
                 .workerId(param.getWorkerId())
                 .requester(param.getRequester())
                 .containerName(param.getContainerName())

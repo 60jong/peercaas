@@ -143,16 +143,16 @@
 
             const result = await response.json();
 
-            // 응답 구조: { message: "...", data: { traceId: "...", ... } }
-            const traceId = result.data.traceId;
+            // 응답 구조: { message: "...", data: { correlationId: "...", ... } }
+            const correlationId = result.data.correlationId;
             const status = result.data.status;
 
             log(`✅ [ACK] 요청 접수 완료!`, "success");
-            log(`   - TraceID: ${traceId}`, "highlight");
+            log(`   - CorrelationID: ${correlationId}`, "highlight");
             log(`   - Status: ${status}`, "warn");
 
             // 2단계: SSE 구독 시작
-            connectSSE(traceId);
+            connectSSE(correlationId);
 
         } catch (e) {
             log(`❌ 요청 실패: ${e.message}`, "error");
@@ -162,12 +162,12 @@
     }
 
     // ==========================================
-    // 📡 2. SSE 구독 (GET /subscribe/{traceId})
+    // 📡 2. SSE 구독 (GET /subscribe/{correlationId})
     // ==========================================
-    function connectSSE(traceId) {
-        // [중요] 요청하신 URL 패턴: /api/v1/notification/subscribe/{traceId}
+    function connectSSE(correlationId) {
+        // [중요] 요청하신 URL 패턴: /api/v1/notification/subscribe/{correlationId}
         // 만약 백엔드가 'notifications'(복수형)라면 아래 주소를 수정하세요.
-        const sseUrl = `${API_BASE_URL}/notification/subscribe/${traceId}`;
+        const sseUrl = `${API_BASE_URL}/notification/subscribe/${correlationId}`;
 
         log(`📡 [SSE] 실시간 로그 구독 시작: ${sseUrl}`, "info");
 
@@ -188,7 +188,7 @@
             try {
                 console.log(event);
                 const data = JSON.parse(event.data);
-                // data 예시: { traceId: "...", status: "SUCCESS", ... }
+                // data 예시: { correlationId: "...", status: "SUCCESS", ... }
 
                 if (data.status === 'SUCCESS' || data.status === 'RUNNING') {
                     log(`🎉 [COMPLETE] 배포 성공!`, "success");

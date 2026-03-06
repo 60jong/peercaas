@@ -26,7 +26,7 @@ public class Deployment extends BaseTimeEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String traceId;
+    private String correlationId;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "requester_id", nullable = false, foreignKey = @ForeignKey(NO_CONSTRAINT))
@@ -74,11 +74,11 @@ public class Deployment extends BaseTimeEntity {
     private Container container;
 
     @Builder
-    public Deployment(String traceId, Member requester, String workerId, String containerName, String image, String tag,
+    public Deployment(String correlationId, Member requester, String workerId, String containerName, String image, String tag,
                       String registry, Double cpuLimit, Long memoryMbLimit,
                       List<CreateDeploymentRequestPayload.PortMapping> ports,
                       Map<String, String> envVars, String restartPolicy) {
-        this.traceId = traceId;
+        this.correlationId = correlationId;
 
         this.requester = requester;
         this.requester.addDeployment(this);

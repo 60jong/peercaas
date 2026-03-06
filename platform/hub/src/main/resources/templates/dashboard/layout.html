@@ -164,6 +164,12 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('accessToken');
+            if (!token) {
+                location.href = '/signin?redirect=/dashboard';
+                return;
+            }
+
             const nick = localStorage.getItem('nickname');
             if (nick) {
                 document.getElementById('top-nickname').textContent = nick;
@@ -179,6 +185,7 @@
                 e.preventDefault();
                 localStorage.removeItem('accessToken');
                 localStorage.removeItem('nickname');
+                document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Strict";
                 location.href = '/';
             });
         });

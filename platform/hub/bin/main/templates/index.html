@@ -57,10 +57,11 @@
                 <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
                 <div class="dropdown-menu" id="profile-dropdown">
                     <div class="dropdown-header">
-                        <div class="dropdown-nickname" id="user-nickname">User Nickname</div>
+                        <div class="dropdown-nickname" id="user-nickname"></div>
                     </div>
                     <a href="/instances" class="dropdown-item">Instances</a>
                     <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="/dashboard/settings" class="dropdown-item">Settings</a>
                     <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
                 </div>
             </div>
@@ -229,6 +230,7 @@
                 e.preventDefault();
                 localStorage.removeItem('accessToken');
                 localStorage.removeItem('nickname');
+                document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC; SameSite=Strict";
                 location.reload();
             });
         });

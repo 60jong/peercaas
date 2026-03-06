@@ -75,7 +75,7 @@ public class NotificationService {
 
     /**
      * 특정 유저에게 알림 전송
-     * @param eventId 이 알림의 고유 ID (TraceID). 이 값을 넣어야 클라이언트가 Last-Event-ID로 활용 가능
+     * @param eventId 이 알림의 고유 ID (CorrelationID). 이 값을 넣어야 클라이언트가 Last-Event-ID로 활용 가능
      */
     public void send(String sessionId, String eventId, String name, Object data) {
         // 1. [Cache] 캐시에 이벤트 저장
@@ -103,7 +103,7 @@ public class NotificationService {
                     .name(name)
                     .data(data);
 
-            // 이벤트 ID가 있을 때만 설정 (TraceID 등)
+            // 이벤트 ID가 있을 때만 설정 (CorrelationID 등)
             if (eventId != null) {
                 event.id(eventId);
             }

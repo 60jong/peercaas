@@ -53,21 +53,21 @@ public class DeploymentApiController {
     /**
      * Deployment 삭제 (워커에 컨테이너 삭제 명령 전송 + 상태 STOPPED)
      */
-    @DeleteMapping("/{traceId}")
+    @DeleteMapping("/{correlationId}")
     public ApiResponse<Void> deleteDeployment(
             @Authenticated Long requesterId,
-            @PathVariable String traceId
+            @PathVariable String correlationId
     ) {
-        deploymentService.deleteByTraceId(traceId, requesterId);
+        deploymentService.deleteByCorrelationId(correlationId, requesterId);
         return ApiResponse.success(null);
     }
 
     /**
-     * traceId로 Deployment 상태 및 Container 정보 조회
+     * correlationId로 Deployment 상태 및 Container 정보 조회
      * SSE 알림을 놓쳤을 때 클라이언트가 폴링에 사용
      */
-    @GetMapping("/{traceId}")
-    public ApiResponse<DeploymentInfoResponse> getDeployment(@PathVariable String traceId) {
-        return ApiResponse.success(deploymentService.getByTraceId(traceId));
+    @GetMapping("/{correlationId}")
+    public ApiResponse<DeploymentInfoResponse> getDeployment(@PathVariable String correlationId) {
+        return ApiResponse.success(deploymentService.getByCorrelationId(correlationId));
     }
 }

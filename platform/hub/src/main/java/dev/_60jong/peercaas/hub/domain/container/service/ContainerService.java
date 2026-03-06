@@ -99,7 +99,7 @@ public class ContainerService {
             }
 
             // 4. Worker 응답 파싱
-            // Worker가 보내는 구조: { cmdType, traceId, payload: { containerId, answer: { type, sdp } } }
+            // Worker가 보내는 구조: { cmdType, correlationId, payload: { containerId, answer: { type, sdp } } }
             JsonNode root = objectMapper.readTree(replyMessage.getBody());
             JsonNode answer = root.path("payload").path("answer");
 

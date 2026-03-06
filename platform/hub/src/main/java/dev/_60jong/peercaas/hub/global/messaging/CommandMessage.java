@@ -19,7 +19,7 @@ public class CommandMessage<T> {
      * 분산 추적 ID (Traceability)
      * 로그 추적을 위해 필수
      */
-    private String traceId;
+    private String correlationId;
 
     /**
      * 실제 비즈니스 데이터
@@ -37,16 +37,16 @@ public class CommandMessage<T> {
         return CommandMessage.<T>builder()
                 .cmdType(cmdType)
                 .payload(payload)
-                .traceId(UUID.randomUUID().toString())
+                .correlationId(UUID.randomUUID().toString())
                 .timestamp(Instant.now().getEpochSecond())
                 .build();
     }
 
-    public static <T> CommandMessage <T> of(String cmdType, String traceId, T payload) {
+    public static <T> CommandMessage <T> of(String cmdType, String correlationId, T payload) {
         return CommandMessage.<T>builder()
                 .cmdType(cmdType)
                 .payload(payload)
-                .traceId(traceId)
+                .correlationId(correlationId)
                 .timestamp(Instant.now().getEpochSecond())
                 .build();
     }

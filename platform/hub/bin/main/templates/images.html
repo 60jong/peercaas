@@ -8,6 +8,7 @@
     <style>
         .results-container { padding: 3rem 5%; max-width: 1000px; margin: 0 auto; }
         .results-container h2 { color: var(--text-heading); font-size: 1.5rem; font-weight: 700; margin-bottom: 1.5rem; }
+        
         .result-card {
             background: var(--bg-card);
             border: 1px solid var(--border-color);
@@ -41,9 +42,118 @@
             font-weight: 700;
             margin-left: 0.25rem;
         }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            width: 100%;
+            max-width: 500px;
+            padding: 2rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-title { font-size: 1.25rem; font-weight: 700; color: var(--text-heading); margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
+        .form-section { margin-bottom: 1.5rem; }
+        .form-section label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; }
+        .modal-input {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-main);
+            font-size: 0.9rem;
+            outline: none;
+        }
+        .modal-input:focus { border-color: var(--primary-color); }
+        .row { display: flex; gap: 1rem; }
+        .row > div { flex: 1; }
+        .modal-actions { display: flex; gap: 1rem; margin-top: 2rem; }
+        .modal-actions .btn { flex: 1; }
+
+        .env-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .env-row input { flex: 1; min-width: 0; }
     </style>
 </head>
 <body>
+    <!-- Deployment Modal -->
+    <div class="modal-overlay" id="deploy-modal">
+        <div class="modal-card">
+            <div class="modal-title">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                Deploy Container
+            </div>
+            
+            <div class="form-section">
+                <label>Target Image</label>
+                <input type="text" id="m-image" class="modal-input" readonly style="opacity: 0.6; cursor: not-allowed;">
+            </div>
+
+            <div class="form-section">
+                <label>Container Name</label>
+                <input type="text" id="m-name" class="modal-input" placeholder="e.g. my-web-app">
+            </div>
+
+            <div class="row form-section">
+                <div>
+                    <label>CPUs</label>
+                    <input type="number" id="m-cpu" class="modal-input" value="0.5" step="0.1" min="0.1">
+                </div>
+                <div>
+                    <label>Memory (MB)</label>
+                    <input type="number" id="m-mem" class="modal-input" value="512" step="128" min="64">
+                </div>
+            </div>
+
+            <div class="row form-section">
+                <div>
+                    <label>Host Port</label>
+                    <input type="number" id="m-hport" class="modal-input" placeholder="8080">
+                </div>
+                <div>
+                    <label>Container Port</label>
+                    <input type="number" id="m-cport" class="modal-input" placeholder="80">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <label>Environment Variables</label>
+                <div id="m-env-list"></div>
+                <button class="btn btn-outline btn-block" style="margin-top: 0.5rem; padding: 0.4rem; font-size: 0.8rem;" onclick="addEnvRow()">+ Add Variable</button>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-outline" onclick="closeDeployModal()">Cancel</button>
+                <button class="btn btn-primary" id="confirm-deploy-btn">Deploy Now</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Sidebar -->
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
     <div class="sidebar" id="sidebar">
@@ -82,6 +192,15 @@
             <a href="/signin" class="btn btn-outline" id="signin-nav">Sign In</a>
             <div id="profile-section" class="profile-container hidden">
                 <img src="https://www.svgrepo.com/show/532362/user.svg" class="profile-img" id="profile-btn">
+                <div class="dropdown-menu" id="profile-dropdown">
+                    <div class="dropdown-header">
+                        <div class="dropdown-nickname" id="user-nickname"></div>
+                    </div>
+                    <a href="/instances" class="dropdown-item">Instances</a>
+                    <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="/dashboard/settings" class="dropdown-item">Settings</a>
+                    <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
+                </div>
             </div>
         </div>
     </nav>
@@ -116,6 +235,7 @@
             }
 
             document.getElementById('search-title').textContent = `Results for "${q}"`;
+            listEl.innerHTML = `<div style="text-align: center; padding: 3rem;"><div class="spinner" style="margin: 0 auto 1rem;"></div><p style="color: var(--text-muted);">Searching Docker Hub...</p></div>`;
 
             try {
                 const res = await fetch(`/api/v1/images/search?q=${encodeURIComponent(q)}`);
@@ -135,7 +255,7 @@
                 }
 
                 listEl.innerHTML = items.map(item => `
-                    <div class="result-card" onclick="location.href='/deploy?image=${item.repo_name}:latest'">
+                    <div class="result-card" onclick="openDeployModal('${item.repo_name}:latest')">
                         <div style="flex: 1; min-width: 0; padding-right: 1rem;">
                             <div class="image-name">${item.repo_name}</div>
                             <div class="image-desc" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -147,7 +267,7 @@
                                 <span style="margin-left: 0.5rem;">★ ${item.star_count || 0}</span>
                             </div>
                         </div>
-                        <button class="btn btn-primary" style="flex-shrink: 0;">Deploy</button>
+                        <button class="btn btn-primary" style="flex-shrink: 0;" onclick="event.stopPropagation(); openDeployModal('${item.repo_name}:latest')">Deploy</button>
                     </div>
                 `).join('');
 
@@ -156,6 +276,99 @@
             }
         }
 
+        // ── Deployment Modal ───────────────────────────────────
+        const deployModal = document.getElementById('deploy-modal');
+        const confirmDeployBtn = document.getElementById('confirm-deploy-btn');
+
+        function openDeployModal(image) {
+            const token = localStorage.getItem('accessToken');
+            if (!token) {
+                alert('Please sign in to deploy containers.');
+                location.href = '/signin?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+                return;
+            }
+            document.getElementById('m-image').value = image;
+            const baseName = image.split(':')[0].split('/').pop();
+            document.getElementById('m-name').value = baseName + '-' + Math.floor(Math.random() * 1000);
+            
+            // Env vars clear
+            document.getElementById('m-env-list').innerHTML = '';
+            addEnvRow();
+
+            deployModal.classList.add('show');
+        }
+
+        function closeDeployModal() {
+            deployModal.classList.remove('show');
+        }
+
+        function addEnvRow() {
+            const div = document.createElement('div');
+            div.className = 'env-row';
+            div.innerHTML = `
+                <input type="text" class="modal-input env-key" placeholder="KEY">
+                <input type="text" class="modal-input env-val" placeholder="VALUE">
+                <button class="btn btn-outline" style="padding: 0 0.5rem;" onclick="this.parentElement.remove()">×</button>
+            `;
+            document.getElementById('m-env-list').appendChild(div);
+        }
+
+        confirmDeployBtn.addEventListener('click', async () => {
+            const image = document.getElementById('m-image').value;
+            const name = document.getElementById('m-name').value;
+            const cpu = parseFloat(document.getElementById('m-cpu').value);
+            const mem = parseInt(document.getElementById('m-mem').value);
+            const hPort = parseInt(document.getElementById('m-hport').value);
+            const cPort = parseInt(document.getElementById('m-cport').value);
+
+            const env = {};
+            document.querySelectorAll('.env-row').forEach(row => {
+                const k = row.querySelector('.env-key').value.trim();
+                const v = row.querySelector('.env-val').value.trim();
+                if (k) env[k] = v;
+            });
+
+            if (!name) return alert('Container name is required.');
+
+            const body = {
+                image,
+                name,
+                resources: { cpu, memoryMb: mem },
+                ports: hPort && cPort ? [{ hostPort: hPort, containerPort: cPort, protocol: 'tcp' }] : [],
+                env,
+                restartPolicy: 'always'
+            };
+
+            confirmDeployBtn.disabled = true;
+            confirmDeployBtn.textContent = 'Deploying...';
+
+            try {
+                const token = localStorage.getItem('accessToken');
+                const res = await fetch('/api/v1/deployment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(body)
+                });
+                const result = await res.json();
+                
+                if (res.ok) {
+                    alert('Deployment started! Redirecting to instances...');
+                    location.href = '/instances';
+                } else {
+                    alert('Deployment failed: ' + (result.message || 'Unknown error'));
+                    confirmDeployBtn.disabled = false;
+                    confirmDeployBtn.textContent = 'Deploy Now';
+                }
+            } catch (e) {
+                alert('Error occurred during deployment.');
+                confirmDeployBtn.disabled = false;
+                confirmDeployBtn.textContent = 'Deploy Now';
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             const searchInput = document.getElementById('image-search');
             const searchBtn = document.getElementById('search-btn');
@@ -163,7 +376,6 @@
             const handleSearch = () => {
                 const q = searchInput.value.trim();
                 if (q) {
-                    // Update URL without full reload for better experience, or reload if preferred
                     const newUrl = `${window.location.pathname}?q=${encodeURIComponent(q)}`;
                     window.history.pushState({ path: newUrl }, '', newUrl);
                     performSearch(q);
@@ -189,7 +401,12 @@
         });
         document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
         sidebarOverlay.addEventListener('click', closeSidebar);
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+        document.addEventListener('keydown', e => { 
+            if (e.key === 'Escape') {
+                closeSidebar();
+                closeDeployModal();
+            }
+        });
         function closeSidebar() { sidebar.classList.remove('show'); sidebarOverlay.classList.remove('show'); }
     </script>
 </body>

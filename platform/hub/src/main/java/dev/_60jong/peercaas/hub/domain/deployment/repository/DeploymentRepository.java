@@ -11,7 +11,7 @@ import java.util.Optional;
 
 @Repository
 public interface DeploymentRepository extends JpaRepository<Deployment, Long> {
-    Optional<Deployment> findByTraceId(String traceId);
+    Optional<Deployment> findByCorrelationId(String correlationId);
 
     List<Deployment> findByRequester_IdOrderByCreatedAtDesc(Long requesterId);
 

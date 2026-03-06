@@ -11,15 +11,15 @@ import java.util.Map;
 public class DeploymentInfoResponse {
 
     private final Long deploymentId;
-    private final String traceId;
+    private final String correlationId;
     private final DeploymentStatus status;
     private final String containerId;
     private final Map<String, Integer> portBindings;
 
-    private DeploymentInfoResponse(Long deploymentId, String traceId, DeploymentStatus status,
+    private DeploymentInfoResponse(Long deploymentId, String correlationId, DeploymentStatus status,
                                    String containerId, Map<String, Integer> portBindings) {
         this.deploymentId = deploymentId;
-        this.traceId = traceId;
+        this.correlationId = correlationId;
         this.status = status;
         this.containerId = containerId;
         this.portBindings = portBindings;
@@ -29,7 +29,7 @@ public class DeploymentInfoResponse {
         Container container = deployment.getContainer();
         return new DeploymentInfoResponse(
                 deployment.getId(),
-                deployment.getTraceId(),
+                deployment.getCorrelationId(),
                 deployment.getStatus(),
                 container != null ? container.getContainerId() : null,
                 container != null ? container.getPortBindings() : null

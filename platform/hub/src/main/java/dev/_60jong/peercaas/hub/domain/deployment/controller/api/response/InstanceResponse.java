@@ -10,7 +10,7 @@ import java.util.Map;
 @Getter
 public class InstanceResponse {
     private final Long deploymentId;
-    private final String traceId;
+    private final String correlationId;
     private final String image;          // "nginx:latest"
     private final String containerName;
     private final String status;
@@ -21,11 +21,11 @@ public class InstanceResponse {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private InstanceResponse(Long deploymentId, String traceId, String image, String containerName,
+    private InstanceResponse(Long deploymentId, String correlationId, String image, String containerName,
                               String status, String containerId, Map<String, Integer> portBindings,
                               String workerId, String createdAt) {
         this.deploymentId = deploymentId;
-        this.traceId = traceId;
+        this.correlationId = correlationId;
         this.image = image;
         this.containerName = containerName;
         this.status = status;
@@ -39,7 +39,7 @@ public class InstanceResponse {
         Container container = d.getContainer();
         return new InstanceResponse(
                 d.getId(),
-                d.getTraceId(),
+                d.getCorrelationId(),
                 d.getImage() + ":" + d.getTag(),
                 d.getContainerName(),
                 d.getStatus().name(),

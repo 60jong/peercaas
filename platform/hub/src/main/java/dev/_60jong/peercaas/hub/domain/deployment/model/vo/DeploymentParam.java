@@ -13,7 +13,7 @@ import java.util.Map;
 @Builder
 @AllArgsConstructor
 public class DeploymentParam {
-    private String traceId;
+    private String correlationId;
     private Member requester;
     private String workerId;
     private String containerName;

@@ -45,9 +45,9 @@ public class CreateDeploymentRequest {
         private Double cpu;
     }
 
-    public DeploymentParam toEntityParam(String traceId, String workerId, Member requester) {
+    public DeploymentParam toEntityParam(String correlationId, String workerId, Member requester) {
         return DeploymentParam.builder()
-                .traceId(traceId)
+                .correlationId(correlationId)
                 .workerId(workerId)
                 .requester(requester)
                 .containerName(this.name)

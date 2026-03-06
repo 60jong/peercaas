@@ -1,8 +1,9 @@
 package dev._60jong.peercaas.hub.domain.dashboard.controller.view;
 
 import dev._60jong.peercaas.hub.domain.agent.repository.WorkerAgentRepository;
-import dev._60jong.peercaas.hub.domain.auth.service.AuthService;
-import dev._60jong.peercaas.hub.domain.auth.controller.api.response.GetKeyResponse;
+import dev._60jong.peercaas.hub.domain.member.model.entity.Member;
+import dev._60jong.peercaas.hub.domain.member.service.MemberService;
+import dev._60jong.peercaas.hub.global.aspect.auth.Authenticated;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -14,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @RequestMapping("/dashboard")
 public class DashboardViewController {
 
-    private final AuthService authService;
+    private final MemberService memberService;
     private final WorkerAgentRepository workerAgentRepository;
 
     @GetMapping
@@ -23,25 +24,25 @@ public class DashboardViewController {
     }
 
     @GetMapping("/client")
-    public String clientDashboard(Model model) {
-        // 실제로는 현재 로그인한 사용자의 ID를 가져와야 함 (Mock: 1L)
-        GetKeyResponse response = authService.issueClientKeyByMemberId(1L);
-        model.addAttribute("key", response.getKey());
+    public String clientDashboard(@Authenticated Long memberId, Model model) {
+        Member member = memberService.findById(memberId);
+        model.addAttribute("key", member.getClientKey());
         return "dashboard/client";
     }
 
     @GetMapping("/worker")
-    public String workerDashboard(Model model) {
-        // 실제로는 현재 로그인한 사용자의 ID를 가져와야 함 (Mock: 1L)
-        Long memberId = 1L; 
+    public String workerDashboard(@Authenticated Long memberId, Model model) {
+        Member member = memberService.findById(memberId);
         
         workerAgentRepository.findByMemberId(memberId).ifPresentOrElse(
             worker -> {
                 model.addAttribute("isWorker", true);
-                model.addAttribute("key", worker.getWorkerId());
+                model.addAttribute("workerId", worker.getWorkerId());
+                model.addAttribute("key", member.getWorkerKey());
             },
             () -> {
                 model.addAttribute("isWorker", false);
+                model.addAttribute("key", member.getWorkerKey());
             }
         );
         

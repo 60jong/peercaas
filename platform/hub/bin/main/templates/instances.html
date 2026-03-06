@@ -478,6 +478,7 @@
                     </div>
                     <a href="/instances" class="dropdown-item">Instances</a>
                     <a href="/dashboard" class="dropdown-item">Dashboard</a>
+                    <a href="/dashboard/settings" class="dropdown-item">Settings</a>
                     <a href="#" class="dropdown-item signout" id="signout-btn">Sign Out</a>
                 </div>
             </div>
@@ -599,9 +600,9 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script>
-        const pendingTraceId = new URLSearchParams(location.search).get('traceId');
+        const pendingCorrelationId = new URLSearchParams(location.search).get('correlationId');
         let allInstances = [];
-        let selectedTraceId = null;
+        let selectedCorrelationId = null;
         let eventSource = null;
 
         // ── Auth ──────────────────────────────────────────────
@@ -678,7 +679,7 @@
             tbody.querySelectorAll('tr.data-row').forEach(tr => {
                 tr.addEventListener('click', e => {
                     if (e.target.type === 'checkbox') return;
-                    selectRow(tr.dataset.traceId);
+                    selectRow(tr.dataset.correlationId);
                 });
                 tr.querySelector('.row-check')?.addEventListener('change', e =>
                     tr.classList.toggle('selected', e.target.checked));
@@ -687,7 +688,7 @@
             footer.style.display = 'flex';
             document.getElementById('footer-count').textContent = `${items.length} instance${items.length > 1 ? 's' : ''}`;
 
-            if (pendingTraceId) selectRow(pendingTraceId);
+            if (pendingCorrelationId) selectRow(pendingCorrelationId);
         }
 
         function rowHtml(item) {
@@ -699,14 +700,14 @@
                 : '\u2014';
             const instId = item.containerId
                 ? item.containerId.slice(0, 12)
-                : item.traceId.slice(0, 12) + '\u2026';
+                : item.correlationId.slice(0, 12) + '\u2026';
 
-            return `<tr class="data-row" id="row-${item.traceId}" data-trace-id="${item.traceId}">
+            return `<tr class="data-row" id="row-${item.correlationId}" data-correlation-id="${item.correlationId}">
                 <td><input type="checkbox" class="row-check"></td>
                 <td>${item.containerName || '\u2014'}</td>
-                <td class="mono" title="${item.containerId || item.traceId}">${instId}</td>
+                <td class="mono" title="${item.containerId || item.correlationId}">${instId}</td>
                 <td>
-                    <span class="status-cell ${sc}" id="status-${item.traceId}">
+                    <span class="status-cell ${sc}" id="status-${item.correlationId}">
                         <span class="status-dot"></span>${statusLabel(item.status)}
                     </span>${bar}
                 </td>
@@ -715,7 +716,7 @@
                 <td class="mono">${item.workerId || '\u2014'}</td>
                 <td>${item.createdAt || '\u2014'}</td>
                 <td class="col-action">
-                    <button class="kebab-btn" data-trace-id="${item.traceId}" title="Actions">\u22ee</button>
+                    <button class="kebab-btn" data-correlation-id="${item.correlationId}" title="Actions">\u22ee</button>
                 </td>
             </tr>`;
         }
@@ -731,21 +732,21 @@
         }
 
         // ── Select row → detail ───────────────────────────────
-        function selectRow(traceId) {
+        function selectRow(correlationId) {
             document.querySelectorAll('tr.data-row').forEach(r => r.classList.remove('selected'));
-            const row = document.getElementById('row-' + traceId);
+            const row = document.getElementById('row-' + correlationId);
             if (!row) return;
             row.classList.add('selected');
-            selectedTraceId = traceId;
+            selectedCorrelationId = correlationId;
 
-            const item = allInstances.find(i => i.traceId === traceId);
+            const item = allInstances.find(i => i.correlationId === correlationId);
             if (!item) return;
 
             document.getElementById('detail-title').textContent = item.containerName || item.image;
 
             const fields = [
                 ['Instance ID',    item.containerId || '\u2014'],
-                ['Trace ID',       item.traceId],
+                ['Trace ID',       item.correlationId],
                 ['State',          statusLabel(item.status), true],
                 ['Image',          item.image],
                 ['Container name', item.containerName || '\u2014', true],
@@ -775,7 +776,7 @@
         document.getElementById('detail-close').addEventListener('click', () => {
             document.getElementById('detail-panel').classList.remove('show');
             document.querySelectorAll('tr.data-row').forEach(r => r.classList.remove('selected'));
-            selectedTraceId = null;
+            selectedCorrelationId = null;
             clearCharts();
         });
 
@@ -787,7 +788,7 @@
             const text   = document.getElementById('filter-input').value.toLowerCase();
             const status = document.getElementById('filter-status').value;
             renderTable(allInstances.filter(i =>
-                (!text   || [i.image, i.containerName, i.traceId, i.containerId].some(v => (v||'').toLowerCase().includes(text))) &&
+                (!text   || [i.image, i.containerName, i.correlationId, i.containerId].some(v => (v||'').toLowerCase().includes(text))) &&
                 (!status || i.status === status || (status === 'PENDING' && i.status === 'REQUESTED'))
             ));
         }
@@ -801,66 +802,66 @@
 
         // ── SSE ───────────────────────────────────────────────
         function startWatchIfNeeded() {
-            if (!pendingTraceId) return;
-            const item = allInstances.find(i => i.traceId === pendingTraceId);
+            if (!pendingCorrelationId) return;
+            const item = allInstances.find(i => i.correlationId === pendingCorrelationId);
             if (!item || item.status === 'RUNNING' || item.status === 'FAILED') return;
-            subscribeSSE(pendingTraceId);
+            subscribeSSE(pendingCorrelationId);
         }
 
-        function subscribeSSE(traceId) {
+        function subscribeSSE(correlationId) {
             if (eventSource) eventSource.close();
-            eventSource = new EventSource(`/api/v1/notification/subscribe/${traceId}`);
+            eventSource = new EventSource(`/api/v1/notification/subscribe/${correlationId}`);
 
             eventSource.addEventListener('deployment-status', e => {
                 const data = JSON.parse(e.data);
-                applyStatusUpdate(traceId, data.status, data.containerId);
+                applyStatusUpdate(correlationId, data.status, data.containerId);
                 eventSource.close(); eventSource = null;
             });
 
             eventSource.onerror = () => {
                 eventSource?.close(); eventSource = null;
-                pollFallback(traceId);
+                pollFallback(correlationId);
             };
 
             setTimeout(() => {
-                if (eventSource) { eventSource.close(); eventSource = null; pollFallback(traceId); }
+                if (eventSource) { eventSource.close(); eventSource = null; pollFallback(correlationId); }
             }, 180_000);
         }
 
-        function applyStatusUpdate(traceId, rawStatus, containerId) {
+        function applyStatusUpdate(correlationId, rawStatus, containerId) {
             const status = rawStatus === 'SUCCESS' ? 'RUNNING' : rawStatus;
-            const item = allInstances.find(i => i.traceId === traceId);
+            const item = allInstances.find(i => i.correlationId === correlationId);
             if (item) { item.status = status; if (containerId) item.containerId = containerId; }
 
-            const cell = document.getElementById('status-' + traceId);
-            const row  = document.getElementById('row-'    + traceId);
+            const cell = document.getElementById('status-' + correlationId);
+            const row  = document.getElementById('row-'    + correlationId);
             if (cell) {
                 cell.className = `status-cell s-${status.toLowerCase()}`;
                 cell.innerHTML = `<span class="status-dot"></span>${statusLabel(status)}`;
                 row?.querySelector('.deploy-bar')?.remove();
             }
 
-            if (selectedTraceId === traceId) selectRow(traceId);
+            if (selectedCorrelationId === correlationId) selectRow(correlationId);
 
             if (status === 'RUNNING') showToast('Container deployed successfully!', 'ok');
             else if (status === 'FAILED') showToast('Deployment failed.', 'err');
         }
 
-        async function pollFallback(traceId, attempts = 0) {
+        async function pollFallback(correlationId, attempts = 0) {
             if (attempts > 10) return;
             try {
-                const res = await fetch(`/api/v1/deployment/${traceId}`, {
+                const res = await fetch(`/api/v1/deployment/${correlationId}`, {
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
                 });
                 const d = (await res.json()).data;
-                if (d.status === 'RUNNING')      applyStatusUpdate(traceId, 'RUNNING', d.containerId);
-                else if (d.status === 'FAILED')  applyStatusUpdate(traceId, 'FAILED', null);
-                else setTimeout(() => pollFallback(traceId, attempts + 1), 3000);
-            } catch (e) { setTimeout(() => pollFallback(traceId, attempts + 1), 5000); }
+                if (d.status === 'RUNNING')      applyStatusUpdate(correlationId, 'RUNNING', d.containerId);
+                else if (d.status === 'FAILED')  applyStatusUpdate(correlationId, 'FAILED', null);
+                else setTimeout(() => pollFallback(correlationId, attempts + 1), 3000);
+            } catch (e) { setTimeout(() => pollFallback(correlationId, attempts + 1), 5000); }
         }
 
         // ── Kebab menu ────────────────────────────────────────
-        let kebabTraceId = null;
+        let kebabCorrelationId = null;
         const kebabMenu = document.getElementById('kebab-menu');
 
         document.getElementById('table-body').addEventListener('click', e => {
@@ -868,12 +869,12 @@
             if (!btn) return;
             e.stopPropagation();
 
-            const traceId = btn.dataset.traceId;
-            if (kebabTraceId === traceId && kebabMenu.classList.contains('show')) {
+            const correlationId = btn.dataset.correlationId;
+            if (kebabCorrelationId === correlationId && kebabMenu.classList.contains('show')) {
                 closeKebab(); return;
             }
 
-            kebabTraceId = traceId;
+            kebabCorrelationId = correlationId;
 
             const rect = btn.getBoundingClientRect();
             kebabMenu.style.top  = (rect.bottom + window.scrollY + 4) + 'px';
@@ -890,7 +891,7 @@
 
         function closeKebab() {
             kebabMenu.classList.remove('show');
-            kebabTraceId = null;
+            kebabCorrelationId = null;
         }
 
         document.addEventListener('click', e => {
@@ -902,29 +903,29 @@
         });
 
         document.getElementById('kebab-delete').addEventListener('click', async () => {
-            const traceId = kebabTraceId;
+            const correlationId = kebabCorrelationId;
             closeKebab();
 
-            const item = allInstances.find(i => i.traceId === traceId);
-            const name = item?.containerName || item?.image || traceId;
+            const item = allInstances.find(i => i.correlationId === correlationId);
+            const name = item?.containerName || item?.image || correlationId;
             if (!confirm(`Delete instance "${name}"?`)) return;
 
             try {
-                const res = await fetch(`/api/v1/deployment/${traceId}`, {
+                const res = await fetch(`/api/v1/deployment/${correlationId}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
                 });
 
                 if (res.ok) {
-                    document.getElementById('row-' + traceId)?.remove();
-                    allInstances = allInstances.filter(i => i.traceId !== traceId);
+                    document.getElementById('row-' + correlationId)?.remove();
+                    allInstances = allInstances.filter(i => i.correlationId !== correlationId);
                     document.getElementById('instance-count').textContent = `(${allInstances.length})`;
                     document.getElementById('footer-count').textContent =
                         `${allInstances.length} instance${allInstances.length !== 1 ? 's' : ''}`;
 
-                    if (selectedTraceId === traceId) {
+                    if (selectedCorrelationId === correlationId) {
                         document.getElementById('detail-panel').classList.remove('show');
-                        selectedTraceId = null;
+                        selectedCorrelationId = null;
                         clearCharts();
                     }
 

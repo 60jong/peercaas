@@ -16,8 +16,8 @@ public class RabbitMQWorkerMessageSender implements WorkerMessageSender {
 
     @Override
     public void send(String targetWorkerId, CommandMessage message) {
-        log.info("[MQ Send] To: {}, Type: {}, TraceId: {}",
-                targetWorkerId, message.getCmdType(), message.getTraceId());
+        log.info("[MQ Send] To: {}, Type: {}, CorrelationId: {}",
+                targetWorkerId, message.getCmdType(), message.getCorrelationId());
 
         // RabbitMQ 전송 로직
         // Exchange: "" (Default Exchange 사용 -> RoutingKey가 Queue 이름과 매핑됨)
