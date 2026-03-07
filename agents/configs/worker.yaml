@@ -8,7 +8,6 @@ rabbitmq:
   password: 991911
 
 worker:
-  worker_id: test-worker
   result_queue: peercaas.worker.events
   concurrency: 5
   hub_url: http://localhost:8080 # 테스트용 (실제 허브가 없어도 메트릭은 쌓임)

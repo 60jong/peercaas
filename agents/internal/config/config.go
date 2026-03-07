@@ -35,7 +35,7 @@ type RabbitMQConfig struct {
 
 // WorkerConfig defines specific settings for the worker agent.
 type WorkerConfig struct {
-	WorkerID      string  `mapstructure:"worker_id"`
+	WorkerID      string  `mapstructure:"-"` // Generated programmatically from WorkerKey
 	WorkerKey     string  `mapstructure:"worker_key"`
 	ResultQueue   string  `mapstructure:"result_queue"`
 	Concurrency   int     `mapstructure:"concurrency"`
@@ -93,7 +93,7 @@ func Load(configName string) (*Config, error) {
 	v.AutomaticEnv()
 
 	// Bind specific environment variables to match naming conventions
-	_ = v.BindEnv("worker.worker_id", "WORKER_ID")
+	// WORKER_ID is no longer bound as it's strictly generated from WORKER_KEY
 	_ = v.BindEnv("worker.worker_key", "WORKER_KEY")
 	_ = v.BindEnv("worker.max_cpu", "MAX_CPU")
 	_ = v.BindEnv("worker.max_memory_mb", "MAX_MEMORY_MB")

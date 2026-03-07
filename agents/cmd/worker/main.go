@@ -27,14 +27,12 @@ func main() {
 		log.Fatalf("CRITICAL: Failed to load configuration: %v", err)
 	}
 
-	// 3. Generate or validate WorkerID
-	if cfg.Worker.WorkerID == "" {
-		if cfg.Worker.WorkerKey == "" {
-			log.Fatal("CRITICAL: Both WORKER_ID and WORKER_KEY are missing. Provide at least WORKER_KEY.")
-		}
-		cfg.Worker.WorkerID = cfg.Worker.GenerateWorkerID()
-		log.Printf("[Main] Automatically generated WorkerID from Key: %s", cfg.Worker.WorkerID)
+	// 3. Strictly generate WorkerID from Key
+	if cfg.Worker.WorkerKey == "" {
+		log.Fatal("CRITICAL: WORKER_KEY environment variable is missing.")
 	}
+	cfg.Worker.WorkerID = cfg.Worker.GenerateWorkerID()
+	log.Printf("[Main] WorkerID generated from Key: %s", cfg.Worker.WorkerID)
 
 	// 4. Initialize Hub connection
 	hubClient := worker.NewHubClient(cfg.Worker.HubURL)
