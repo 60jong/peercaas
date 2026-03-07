@@ -80,6 +80,10 @@ func (h *HeartbeatManager) Start(ctx context.Context) {
 
 	log.Printf("[Heartbeat] Service started for worker: %s", h.workerID)
 
+	// Ship any pending metrics from previous sessions immediately on startup
+	log.Printf("[Heartbeat] Checking for pending metrics from previous sessions...")
+	h.ship(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():
