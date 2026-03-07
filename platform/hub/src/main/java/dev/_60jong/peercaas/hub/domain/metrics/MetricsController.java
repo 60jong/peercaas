@@ -58,7 +58,7 @@ public class MetricsController {
         String label = "{container_id=\"" + containerId + "\"}";
 
         return ResponseEntity.ok(new ContainerMetricsResponse(
-                vmClient.queryRange("container_usage_cpu_usage"    + label, start, end, step),
+                vmClient.queryRange("rate(container_usage_cpu_usage_ns" + label + "[5m])", start, end, step),
                 vmClient.queryRange("container_usage_mem_usage_mb" + label, start, end, step),
                 vmClient.queryRange("container_usage_net_tx_bytes" + label, start, end, step),
                 vmClient.queryRange("container_usage_net_rx_bytes" + label, start, end, step)
@@ -81,7 +81,7 @@ public class MetricsController {
 
         // Aggregate across all containers on this worker
         return ResponseEntity.ok(new WorkerMetricsResponse(
-                vmClient.queryRange("sum(container_usage_cpu_usage"    + label + ")", start, end, step),
+                vmClient.queryRange("sum(rate(container_usage_cpu_usage_ns" + label + "[5m]))", start, end, step),
                 vmClient.queryRange("sum(container_usage_mem_usage_mb" + label + ")", start, end, step),
                 vmClient.queryRange("sum(rate(container_usage_net_tx_bytes" + label + "[5m]))", start, end, step),
                 vmClient.queryRange("sum(rate(container_usage_net_rx_bytes" + label + "[5m]))", start, end, step)

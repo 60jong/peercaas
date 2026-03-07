@@ -95,12 +95,9 @@ func (c *Collector) GetContainerStats(ctx context.Context, containerID string) (
 
 	var s StatsSnapshot
 	s.MemUsageMb = int64(v.MemoryStats.Usage) / 1024 / 1024
-
-	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
-	if systemDelta > 0.0 && cpuDelta > 0.0 {
-		s.CPUUsage = (cpuDelta / systemDelta) * float64(v.CPUStats.OnlineCPUs)
-	}
+	// Report raw cumulative CPU nanoseconds.
+	// Calculation will be handled by the server using rate() or irate().
+	s.CPUUsage = float64(v.CPUStats.CPUUsage.TotalUsage)
 
 	return s, nil
 }
