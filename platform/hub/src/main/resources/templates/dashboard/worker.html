@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PeerCaaS - Worker Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
@@ -119,24 +121,67 @@
 
     #main-content { display: none; }
 
-    /* ── Charts ── */
-    .metrics-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; margin-top: 32px; }
-    .metrics-title { font-size: 16px; font-weight: 700; color: var(--text-heading); }
-    .range-tabs { display: flex; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 3px; gap: 4px; }
+    /* ── Metrics Table-like Unified Card ── */
+    .unified-metrics-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px;
+      margin-top: 32px;
+    }
+    .metrics-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .metrics-title { font-size: 18px; font-weight: 700; color: var(--text-heading); }
+    .metrics-actions { display: flex; align-items: center; gap: 12px; }
+    
+    .range-tabs { display: flex; background: var(--bg-elevated); border-radius: 8px; padding: 3px; gap: 4px; }
     .range-btn {
       background: none; border: none; color: var(--text-muted); font-size: 11px; font-weight: 600;
       padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s;
     }
-    .range-btn:hover { color: var(--text-main); background: var(--bg-elevated); }
-    .range-btn.active { color: var(--primary-color); background: var(--primary-subtle); }
+    .range-btn:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+    .range-btn.active { color: var(--primary-color); background: var(--bg-card); box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
 
-    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 40px; }
-    .chart-card {
-      background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px;
-      display: flex; flex-direction: column; gap: 16px;
+    .reset-zoom-btn {
+      background: var(--primary-subtle);
+      color: var(--primary-color);
+      border: 1px solid rgba(0, 212, 170, 0.2);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
     }
-    .chart-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-    .chart-container { position: relative; height: 200px; width: 100%; }
+    .reset-zoom-btn:hover { background: var(--primary-color); color: #0a0a0f; }
+
+    /* Table-like row layout for graphs */
+    .metrics-grid { display: flex; flex-direction: column; gap: 32px; }
+    .metric-row { display: flex; flex-direction: column; gap: 12px; }
+    .metric-row-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .metric-row-label .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .chart-wrapper { position: relative; height: 180px; width: 100%; cursor: crosshair; }
+
+    .help-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 16px;
+      text-align: right;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -169,6 +214,7 @@
     </div>
 
     <div id="main-content">
+      <!-- Summary Cards -->
       <div class="cards">
         <div class="card">
           <div class="card-label">Total Tx</div>
@@ -196,34 +242,61 @@
         </div>
       </div>
 
-      <!-- Stats Section -->
-      <div class="metrics-header">
-        <div class="metrics-title">Performance Statistics</div>
-        <div class="range-tabs" id="range-tabs">
-          <button class="range-btn active" data-range="1h">1H</button>
-          <button class="range-btn" data-range="6h">6H</button>
-          <button class="range-btn" data-range="24h">24H</button>
+      <!-- Unified Metrics Card -->
+      <div class="unified-metrics-card">
+        <div class="metrics-header">
+          <div class="metrics-title">Performance Analytics</div>
+          <div class="metrics-actions">
+            <button class="reset-zoom-btn" id="reset-zoom-btn">Reset Zoom</button>
+            <div class="range-tabs" id="range-tabs">
+              <button class="range-btn active" data-range="1h">1H</button>
+              <button class="range-btn" data-range="6h">6H</button>
+              <button class="range-btn" data-range="24h">24H</button>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div id="stats-status" style="display:none; text-align:center; padding: 40px; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 16px;"></div>
-        Loading statistics...
-      </div>
+        <div id="stats-status" style="display:none; text-align:center; padding: 40px; color: var(--text-muted);">
+          <div class="spinner" style="margin: 0 auto 16px;"></div>
+          Loading statistics...
+        </div>
 
-      <div class="charts-grid" id="charts-area">
-        <div class="chart-card">
-          <div class="chart-label">Aggregate CPU Usage (%)</div>
-          <div class="chart-container"><canvas id="chart-cpu"></canvas></div>
+        <div class="metrics-grid" id="charts-area">
+          <!-- CPU Row -->
+          <div class="metric-row">
+            <div class="metric-row-label">
+              <div class="dot" style="background: var(--primary-color)"></div>
+              CPU Usage (%)
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chart-cpu"></canvas>
+            </div>
+          </div>
+
+          <!-- Memory Row -->
+          <div class="metric-row">
+            <div class="metric-row-label">
+              <div class="dot" style="background: var(--secondary-color)"></div>
+              Memory Usage (MB)
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chart-mem"></canvas>
+            </div>
+          </div>
+
+          <!-- Network Row -->
+          <div class="metric-row">
+            <div class="metric-row-label">
+              <div class="dot" style="background: var(--green)"></div>
+              Network Throughput (Bytes/s)
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="chart-net"></canvas>
+            </div>
+          </div>
         </div>
-        <div class="chart-card">
-          <div class="chart-label">Aggregate Memory Usage (MB)</div>
-          <div class="chart-container"><canvas id="chart-mem"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-label">Network Throughput (Rate)</div>
-          <div class="chart-container"><canvas id="chart-net"></canvas></div>
-        </div>
+        
+        <p class="help-text">Tip: Drag horizontally on any graph to zoom into a specific time period.</p>
       </div>
     </div>
   </div>
@@ -311,6 +384,11 @@
       loadStats();
     });
 
+    document.getElementById('reset-zoom-btn').addEventListener('click', () => {
+      [cpuChart, memChart, netChart].forEach(c => c?.resetZoom());
+      document.getElementById('reset-zoom-btn').style.display = 'none';
+    });
+
     async function loadStats() {
       const status = document.getElementById('stats-status');
       const area = document.getElementById('charts-area');
@@ -352,6 +430,10 @@
     }
 
     function makeChart(id, datasets, yMin, yMax) {
+      const onZoom = () => {
+        document.getElementById('reset-zoom-btn').style.display = 'inline-block';
+      };
+
       return new Chart(document.getElementById(id), {
         type: 'line',
         data: { datasets },
@@ -359,12 +441,21 @@
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
+          interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { display: datasets.length > 1, position: 'top', labels: { boxWidth: 10, font: { size: 10 }, color: '#71717a' } },
-            tooltip: { mode: 'index', intersect: false }
+            tooltip: { mode: 'index', intersect: false },
+            zoom: {
+              zoom: {
+                drag: { enabled: true, backgroundColor: 'rgba(0, 212, 170, 0.1)', borderColor: 'rgba(0, 212, 170, 0.4)', borderWidth: 1 },
+                mode: 'x',
+                onZoomComplete: onZoom
+              },
+              pan: { enabled: true, mode: 'x' }
+            }
           },
           scales: {
-            x: { ticks: { font: { size: 9 }, color: '#71717a', maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+            x: { ticks: { font: { size: 9 }, color: '#71717a', maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
             y: { min: yMin, max: yMax, ticks: { font: { size: 9 }, color: '#71717a' }, grid: { color: '#27272a' } }
           }
         }
@@ -373,6 +464,7 @@
 
     function renderCharts(data) {
       [cpuChart, memChart, netChart].forEach(c => c?.destroy());
+      document.getElementById('reset-zoom-btn').style.display = 'none';
 
       const cpu = vmToChartData(data.cpuUsage);
       const mem = vmToChartData(data.memUsage);
