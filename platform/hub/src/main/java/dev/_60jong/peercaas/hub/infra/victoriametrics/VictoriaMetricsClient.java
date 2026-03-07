@@ -74,4 +74,14 @@ public class VictoriaMetricsClient {
             return Collections.emptyList();
         }
     }
+
+    /**
+     * sum(), rate() 등 집계 쿼리 결과를 위한 메서드.
+     * 결과가 여러 series로 나뉘어 있어도 첫 번째를 반환하거나 로직에 맞게 처리.
+     * (Prometheus API 특성상 sum()은 하나의 series만 반환함)
+     */
+    public List<List<Object>> queryRangeSum(String query, long startEpoch, long endEpoch, String step) {
+        // queryRange와 동일하게 동작하나, 집계 의도를 명시하기 위함
+        return queryRange(query, startEpoch, endEpoch, step);
+    }
 }

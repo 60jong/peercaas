@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PeerCaaS - Worker Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
@@ -117,6 +118,25 @@
     @keyframes spin { to { transform: rotate(360deg); } }
 
     #main-content { display: none; }
+
+    /* ── Charts ── */
+    .metrics-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; margin-top: 32px; }
+    .metrics-title { font-size: 16px; font-weight: 700; color: var(--text-heading); }
+    .range-tabs { display: flex; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 3px; gap: 4px; }
+    .range-btn {
+      background: none; border: none; color: var(--text-muted); font-size: 11px; font-weight: 600;
+      padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s;
+    }
+    .range-btn:hover { color: var(--text-main); background: var(--bg-elevated); }
+    .range-btn.active { color: var(--primary-color); background: var(--primary-subtle); }
+
+    .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 40px; }
+    .chart-card {
+      background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .chart-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .chart-container { position: relative; height: 200px; width: 100%; }
   </style>
 </head>
 <body>
@@ -175,11 +195,45 @@
           <div class="card-value small" id="w-reported">&mdash;</div>
         </div>
       </div>
+
+      <!-- Stats Section -->
+      <div class="metrics-header">
+        <div class="metrics-title">Performance Statistics</div>
+        <div class="range-tabs" id="range-tabs">
+          <button class="range-btn active" data-range="1h">1H</button>
+          <button class="range-btn" data-range="6h">6H</button>
+          <button class="range-btn" data-range="24h">24H</button>
+        </div>
+      </div>
+
+      <div id="stats-status" style="display:none; text-align:center; padding: 40px; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 16px;"></div>
+        Loading statistics...
+      </div>
+
+      <div class="charts-grid" id="charts-area">
+        <div class="chart-card">
+          <div class="chart-label">Aggregate CPU Usage (%)</div>
+          <div class="chart-container"><canvas id="chart-cpu"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">Aggregate Memory Usage (MB)</div>
+          <div class="chart-container"><canvas id="chart-mem"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-label">Network Throughput (Rate)</div>
+          <div class="chart-container"><canvas id="chart-net"></canvas></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script th:if="${isWorker}" th:inline="javascript">
     const AGENT_KEY = [[${key}]];
+    const WORKER_ID = [[${workerId}]];
+    
+    let cpuChart = null, memChart = null, netChart = null;
+    let currentRange = '1h';
 
     function fmtBytes(n) {
       n = Number(n) || 0;
@@ -192,7 +246,7 @@
     function render(snap) {
       const mainContent = document.getElementById('main-content');
       const waitingArea = document.getElementById('waiting-area');
-      if (mainContent) mainContent.style.display = '';
+      if (mainContent) mainContent.style.display = 'block';
       if (waitingArea) waitingArea.style.display = 'none';
 
       const stale = snap.stale;
@@ -246,8 +300,120 @@
       }
     }
 
+    // ── Metrics Logic ──
+    
+    document.getElementById('range-tabs').addEventListener('click', e => {
+      const btn = e.target.closest('.range-btn');
+      if (!btn) return;
+      document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentRange = btn.dataset.range;
+      loadStats();
+    });
+
+    async function loadStats() {
+      const status = document.getElementById('stats-status');
+      const area = document.getElementById('charts-area');
+      
+      status.style.display = 'block';
+      area.style.opacity = '0.5';
+
+      try {
+        const res = await fetch(`/api/v1/metrics/worker/${encodeURIComponent(WORKER_ID)}?range=${currentRange}`, {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
+        });
+        const data = await res.json();
+        renderCharts(data);
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      } finally {
+        status.style.display = 'none';
+        area.style.opacity = '1';
+      }
+    }
+
+    function vmToChartData(values) {
+      if (!values?.length) return { labels: [], data: [] };
+      return {
+        labels: values.map(v => fmtEpoch(Number(v[0]))),
+        data:   values.map(v => parseFloat(v[1]))
+      };
+    }
+
+    function fmtEpoch(epochSec) {
+      const d  = new Date(epochSec * 1000);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      if (currentRange === '1h') return `${hh}:${mm}:${ss}`;
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${mo}-${dd} ${hh}:${mm}`;
+    }
+
+    function makeChart(id, datasets, yMin, yMax) {
+      return new Chart(document.getElementById(id), {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { display: datasets.length > 1, position: 'top', labels: { boxWidth: 10, font: { size: 10 }, color: '#71717a' } },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            x: { ticks: { font: { size: 9 }, color: '#71717a', maxTicksLimit: 6, maxRotation: 0 }, grid: { display: false } },
+            y: { min: yMin, max: yMax, ticks: { font: { size: 9 }, color: '#71717a' }, grid: { color: '#27272a' } }
+          }
+        }
+      });
+    }
+
+    function renderCharts(data) {
+      [cpuChart, memChart, netChart].forEach(c => c?.destroy());
+
+      const cpu = vmToChartData(data.cpuUsage);
+      const mem = vmToChartData(data.memUsage);
+      const tx  = vmToChartData(data.netTx);
+      const rx  = vmToChartData(data.netRx);
+
+      cpuChart = makeChart('chart-cpu', [{
+        label: 'CPU %',
+        data: cpu.labels.map((l, i) => ({ x: l, y: +(cpu.data[i] * 100).toFixed(2) })),
+        borderColor: '#00d4aa', backgroundColor: 'rgba(0,212,170,0.07)',
+        borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+      }], 0);
+
+      memChart = makeChart('chart-mem', [{
+        label: 'MB',
+        data: mem.labels.map((l, i) => ({ x: l, y: +mem.data[i].toFixed(1) })),
+        borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.07)',
+        borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+      }]);
+
+      const netLabels = tx.labels.length >= rx.labels.length ? tx.labels : rx.labels;
+      netChart = makeChart('chart-net', [
+        {
+          label: 'TX (B/s)',
+          data: netLabels.map((l, i) => ({ x: l, y: tx.data[i] ?? null })),
+          borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.07)',
+          borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+        },
+        {
+          label: 'RX (B/s)',
+          data: netLabels.map((l, i) => ({ x: l, y: rx.data[i] ?? null })),
+          borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.07)',
+          borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3
+        }
+      ]);
+    }
+
     refresh();
     setInterval(refresh, 2000);
+    loadStats();
+    setInterval(loadStats, 30000);
   </script>
 </body>
 </html>

@@ -3,6 +3,7 @@ package dev._60jong.peercaas.hub.domain.metrics;
 import dev._60jong.peercaas.hub.domain.metrics.dto.AgentSnapshot;
 import dev._60jong.peercaas.hub.domain.metrics.dto.ContainerMetricsResponse;
 import dev._60jong.peercaas.hub.domain.metrics.dto.MetricsReport;
+import dev._60jong.peercaas.hub.domain.metrics.dto.WorkerMetricsResponse;
 import dev._60jong.peercaas.hub.infra.victoriametrics.VictoriaMetricsClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +62,29 @@ public class MetricsController {
                 vmClient.queryRange("container_usage_mem_usage_mb" + label, start, end, step),
                 vmClient.queryRange("container_usage_net_tx_bytes" + label, start, end, step),
                 vmClient.queryRange("container_usage_net_rx_bytes" + label, start, end, step)
+        ));
+    }
+
+    /**
+     * 워커별 집계 시계열 메트릭 조회 (VictoriaMetrics 프록시)
+     */
+    @GetMapping("/worker/{workerId}")
+    public ResponseEntity<WorkerMetricsResponse> getWorkerMetrics(
+            @PathVariable String workerId,
+            @RequestParam(defaultValue = "1h") String range
+    ) {
+        long end   = Instant.now().getEpochSecond();
+        long start = end - rangeToSeconds(range);
+        String step = rangeToStep(range);
+
+        String label = "{worker_id=\"" + workerId + "\"}";
+
+        // Aggregate across all containers on this worker
+        return ResponseEntity.ok(new WorkerMetricsResponse(
+                vmClient.queryRange("sum(container_usage_cpu_usage"    + label + ")", start, end, step),
+                vmClient.queryRange("sum(container_usage_mem_usage_mb" + label + ")", start, end, step),
+                vmClient.queryRange("sum(rate(container_usage_net_tx_bytes" + label + "[5m]))", start, end, step),
+                vmClient.queryRange("sum(rate(container_usage_net_rx_bytes" + label + "[5m]))", start, end, step)
         ));
     }
 
