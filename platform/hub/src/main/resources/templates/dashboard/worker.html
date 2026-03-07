@@ -290,7 +290,7 @@
 
     async function refresh() {
       try {
-        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(AGENT_KEY)}`);
+        const res = await fetch(`/api/v1/metrics/${encodeURIComponent(WORKER_ID)}`);
         if (res.status === 404) return;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         render(await res.json());
