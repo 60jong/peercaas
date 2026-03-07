@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
@@ -42,20 +43,23 @@ public class VictoriaMetricsClient {
      */
     @SuppressWarnings("unchecked")
     public List<List<Object>> queryRange(String query, long startEpoch, long endEpoch, String step) {
-        String url = UriComponentsBuilder.fromHttpUrl(baseUrl + "/api/v1/query_range")
+        // String 기반의 URL은 RestTemplate이 내부적으로 변수 확장({variable})을 시도하여
+        // PromQL의 중괄호와 충돌하므로, URI 객체를 직접 생성하여 전달해야 한다.
+        URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl + "/api/v1/query_range")
                 .queryParam("query", query)
                 .queryParam("start", startEpoch)
                 .queryParam("end", endEpoch)
                 .queryParam("step", step)
-                .build(false)
-                .toUriString();
+                .build()
+                .encode()
+                .toUri();
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", authHeader);
 
         try {
             ResponseEntity<Map> response = restTemplate.exchange(
-                    url, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+                    uri, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
             Map<?, ?> body = response.getBody();
             if (body == null) return Collections.emptyList();
 
@@ -77,11 +81,8 @@ public class VictoriaMetricsClient {
 
     /**
      * sum(), rate() 등 집계 쿼리 결과를 위한 메서드.
-     * 결과가 여러 series로 나뉘어 있어도 첫 번째를 반환하거나 로직에 맞게 처리.
-     * (Prometheus API 특성상 sum()은 하나의 series만 반환함)
      */
     public List<List<Object>> queryRangeSum(String query, long startEpoch, long endEpoch, String step) {
-        // queryRange와 동일하게 동작하나, 집계 의도를 명시하기 위함
         return queryRange(query, startEpoch, endEpoch, step);
     }
 }
