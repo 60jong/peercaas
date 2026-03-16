@@ -1,0 +1,206 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ─── 변경된 컴포넌트 감지 ───────────────────────────────────────────────────
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      hub:          ${{ steps.filter.outputs.hub }}
+      engine:       ${{ steps.filter.outputs.engine }}
+      agents:       ${{ steps.filter.outputs.agents }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            hub:
+              - 'platform/hub/**'
+              - 'platform/common/**'
+            engine:
+              - 'platform/engine/**'
+              - 'platform/common/**'
+            agents:
+              - 'agents/**'
+
+  # ─── Hub ────────────────────────────────────────────────────────────────────
+  build-hub:
+    name: Build & Deploy / hub
+    needs: changes
+    if: needs.changes.outputs.hub == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./platform
+          file: ./platform/hub/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/peercaas-hub:latest
+          cache-from: type=gha,scope=hub
+          cache-to: type=gha,scope=hub,mode=max
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/peercaas-hub:latest
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: IMAGE,GHCR_TOKEN,GITHUB_ACTOR
+          script: |
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            docker pull "$IMAGE"
+            docker stop peercaas-hub || true
+            docker rm   peercaas-hub || true
+            docker run -d \
+              --name peercaas-hub \
+              --restart unless-stopped \
+              -p 8080:8080 \
+              # TODO: 필요한 환경변수 추가
+              # -e SPRING_DATASOURCE_URL=jdbc:mariadb://... \
+              # -e SPRING_RABBITMQ_HOST=... \
+              "$IMAGE"
+
+  # ─── Engine ─────────────────────────────────────────────────────────────────
+  build-engine:
+    name: Build & Deploy / engine
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./platform
+          file: ./platform/engine/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/peercaas-engine:latest
+          cache-from: type=gha,scope=engine
+          cache-to: type=gha,scope=engine,mode=max
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/peercaas-engine:latest
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: IMAGE,GHCR_TOKEN,GITHUB_ACTOR
+          script: |
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            docker pull "$IMAGE"
+            docker stop peercaas-engine || true
+            docker rm   peercaas-engine || true
+            docker run -d \
+              --name peercaas-engine \
+              --restart unless-stopped \
+              -p 8090:8090 \
+              -p 6006:6006 \
+              # TODO: 필요한 환경변수 추가
+              "$IMAGE"
+
+  # ─── Client Agent ───────────────────────────────────────────────────────────
+  build-client-agent:
+    name: Build & Push / client-agent
+    needs: changes
+    if: needs.changes.outputs.agents == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./agents
+          file: ./agents/Dockerfile.client
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/peercaas-client-agent:latest
+          cache-from: type=gha,scope=client-agent
+          cache-to: type=gha,scope=client-agent,mode=max
+
+  # ─── Worker Agent ───────────────────────────────────────────────────────────
+  build-worker-agent:
+    name: Build & Push / worker-agent
+    needs: changes
+    if: needs.changes.outputs.agents == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./agents
+          file: ./agents/Dockerfile.worker
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/peercaas-worker-agent:latest
+          cache-from: type=gha,scope=worker-agent
+          cache-to: type=gha,scope=worker-agent,mode=max
