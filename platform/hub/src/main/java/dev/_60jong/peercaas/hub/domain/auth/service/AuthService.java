@@ -49,6 +49,24 @@ public class AuthService {
     }
 
     /**
+     * Client Agent 키 발급
+     */
+    @Transactional(readOnly = true)
+    public GetKeyResponse issueClientKeyByMemberId(Long memberId) {
+        Member member = memberService.findById(memberId);
+        return new GetKeyResponse(member.getClientKey());
+    }
+
+    /**
+     * Worker Agent 키 발급
+     */
+    @Transactional(readOnly = true)
+    public GetKeyResponse issueWorkerKeyByMemberId(Long memberId) {
+        Member member = memberService.findById(memberId);
+        return new GetKeyResponse(member.getWorkerKey());
+    }
+
+    /**
      * 회원가입
      */
     @Transactional

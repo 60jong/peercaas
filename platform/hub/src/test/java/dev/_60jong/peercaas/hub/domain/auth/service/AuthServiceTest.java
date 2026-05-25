@@ -66,7 +66,7 @@ class AuthServiceTest {
         @DisplayName("존재하지 않는 멤버가 Client Key 요청 시 예외가 발생한다")
         void fail_client_key_member_not_found() {
             // given
-            given(memberService.existsById(any())).willReturn(false);
+            given(memberService.findById(any())).willThrow(new BaseException(ENTITY_NOT_FOUND, "Entity not found"));
 
             // when & then
             assertThatThrownBy(() -> authService.issueClientKeyByMemberId(999L))
@@ -78,12 +78,12 @@ class AuthServiceTest {
         @DisplayName("존재하지 않는 멤버가 Worker Key 요청 시 예외가 발생한다")
         void fail_worker_key_member_not_found() {
             // given
-            given(memberService.existsById(any())).willReturn(false);
+            given(memberService.findById(any())).willThrow(new BaseException(ENTITY_NOT_FOUND, "Entity not found"));
 
             // when & then
-            // 코드상 Worker는 ResponseStatusException을 던짐
             assertThatThrownBy(() -> authService.issueWorkerKeyByMemberId(999L))
-                    .isInstanceOf(BaseException.class);
+                    .isInstanceOf(BaseException.class)
+                    .extracting("code").isEqualTo(ENTITY_NOT_FOUND.getCode());
         }
     }
 
@@ -152,6 +152,7 @@ class AuthServiceTest {
             // given
             ReissueRequest request = new ReissueRequest(OLD_REFRESH);
             Member member = Member.builder()
+                    .nickname("tester")
                     .build();
             ReflectionTestUtils.setField(member, "id", MEMBER_ID);
 
@@ -163,10 +164,13 @@ class AuthServiceTest {
             given(cacheService.get(eq(CACHE_NAME), anyString(), eq(String.class)))
                     .willReturn(Optional.of(OLD_REFRESH));
 
-            // 3. 새 Access Token 생성
+            // 3. Member 조회 추가
+            given(memberService.findById(MEMBER_ID)).willReturn(member);
+
+            // 4. 새 Access Token 생성
             given(jwtProvider.createAccessToken(MEMBER_ID)).willReturn(NEW_ACCESS);
 
-            // 4. [핵심] 남은 시간이 설정값보다 적음 (1초 남음) -> Rotation 트리거
+            // 5. [핵심] 남은 시간이 설정값보다 적음 (1초 남음) -> Rotation 트리거
             given(jwtProvider.getRemainingTime(OLD_REFRESH)).willReturn(1000L);
             // 1000L < REMAINING_DUE(하루) 이므로 true
 
@@ -188,11 +192,19 @@ class AuthServiceTest {
         void reissue_no_rotation_success() {
             // given
             ReissueRequest request = new ReissueRequest(OLD_REFRESH);
+            Member member = Member.builder()
+                    .nickname("tester")
+                    .build();
+            ReflectionTestUtils.setField(member, "id", MEMBER_ID);
 
             given(jwtProvider.validateToken(OLD_REFRESH)).willReturn(true);
             given(jwtProvider.getMemberId(OLD_REFRESH)).willReturn(MEMBER_ID);
             given(cacheService.get(eq(CACHE_NAME), anyString(), eq(String.class)))
                     .willReturn(Optional.of(OLD_REFRESH));
+
+            // Member 조회 추가
+            given(memberService.findById(MEMBER_ID)).willReturn(member);
+
             given(jwtProvider.createAccessToken(MEMBER_ID)).willReturn(NEW_ACCESS);
 
             // 4. [핵심] 남은 시간이 충분함 (2일 남음)

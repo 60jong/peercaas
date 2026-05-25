@@ -2,10 +2,10 @@ server:
   name: "client-host-A"
 
 rabbitmq:
-  host: "localhost"
+  host: 58.143.80.18
   port: 5672
-  username: "guest"
-  password: "guest"
+  username: root
+  password: 991911
 
 # Client 전용 설정
 client:
